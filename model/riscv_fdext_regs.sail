@@ -470,8 +470,8 @@ mapping freg_name = {
 
 val freg_or_reg_name : bits(5) <-> string
 mapping freg_or_reg_name = {
-  reg if sys_enable_fdext() <-> freg_name(reg) if sys_enable_fdext(),
-  reg if sys_enable_zfinx() <-> reg_name(reg)  if sys_enable_zfinx()
+  reg if not (sys_enable_zfinx()) <-> freg_name(reg) if not (sys_enable_zfinx()),
+  reg if sys_enable_zfinx() <-> reg_name(reg)  if sys_enable_zfinx(),
 }
 
 val init_fdext_regs : unit -> unit effect {wreg}
