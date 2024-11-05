@@ -7,7 +7,7 @@
 /*=======================================================================================*/
 
 enum clause extension = Ext_Zbkx
-function clause extensionEnabled(Ext_Zbkx) = true
+function clause extensionEnabled(Ext_Zbkx) = sys_enable_zkn() | sys_enable_zks()
 
 /* ****************************************************************** */
 union clause ast = RISCV_XPERM8 : (regidx, regidx, regidx)

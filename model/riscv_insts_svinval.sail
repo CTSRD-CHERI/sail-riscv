@@ -31,7 +31,7 @@ mapping clause encdec =
   <-> 0b0001100 @ 0b00000 @ 0b00000 @ 0b000 @ 0b00000 @ 0b1110011 if extensionEnabled(Ext_Svinval)
 
 function clause execute SFENCE_W_INVAL() = {
-  if cur_privilege == User
+  if cur_privilege() == User
   then { handle_illegal(); RETIRE_FAIL }
   else { RETIRE_SUCCESS } // Implemented as no-op as all memory operations are visible immediately the current Sail model
 }
@@ -47,7 +47,7 @@ mapping clause encdec =
   <-> 0b0001100 @ 0b00001 @ 0b00000 @ 0b000 @ 0b00000 @ 0b1110011 if extensionEnabled(Ext_Svinval)
 
 function clause execute SFENCE_INVAL_IR() = {
-  if cur_privilege == User
+  if cur_privilege() == User
   then { handle_illegal(); RETIRE_FAIL }
   else { RETIRE_SUCCESS } // Implemented as no-op as all memory operations are visible immediately in current Sail model
 }

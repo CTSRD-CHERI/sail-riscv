@@ -8,10 +8,10 @@
 
 /* ****************************************************************** */
 /* This file specifies the atomic instructions in the 'A' extension.  */
-
 /* ****************************************************************** */
+
 enum clause extension = Ext_Zabha
-function clause extensionEnabled(Ext_Zabha) = true
+function clause extensionEnabled(Ext_Zabha) = false
 
 // Some print utils for lr/sc.
 
@@ -80,20 +80,25 @@ function clause execute(LOADRES(aq, rl, rs1, width, rd)) = {
   /* Get the address, X(rs1) (no offset).
     * Extensions might perform additional checks on address validity.
     */
-  match ext_data_get_addr(rs1, zeros(), Read(Data), width_bytes) {
+  let (vaddr, check_result) = ext_data_get_addr(rs1, zeros(), Read(Data), width_bytes);
+  match check_and_handle_load_vaddr_for_triggers(vaddr, get_arch_pc()) {
+    Some(ret) => return ret,
+    _ => ()
+  };
+  match check_result {
     Ext_DataAddr_Error(e)  => { ext_handle_data_check_error(e); RETIRE_FAIL },
-    Ext_DataAddr_OK(vaddr) => {
+    Ext_DataAddr_OK() => {
       /* "LR faults like a normal load, even though it's in the AMO major opcode space."
         * - Andrew Waterman, isa-dev, 10 Jul 2018.
         */
       if not(is_aligned(vaddr, width))
       then { handle_mem_exception(vaddr, E_Load_Addr_Align()); RETIRE_FAIL }
       else match translateAddr(vaddr, Read(Data)) {
-        TR_Failure(e, _)    => { handle_mem_exception(vaddr, e); RETIRE_FAIL },
-        TR_Address(addr, _) =>
-          match mem_read(Read(Data), addr, width_bytes, aq, aq & rl, true) {
-            MemValue(result) => { load_reservation(addr); X(rd) = sign_extend(result); RETIRE_SUCCESS },
-            MemException(e)  => { handle_mem_exception(vaddr, e); RETIRE_FAIL }
+        TR_Failure(e)    => { handle_mem_exception(vaddr, e); RETIRE_FAIL },
+        TR_Address(paddr, pbmt, _) =>
+          match mem_read(Read(Data), pbmt, paddr, width_bytes, aq, aq & rl, true) {
+            MemValue(result) => { load_reservation(paddr); X(rd) = sign_extend(result); RETIRE_SUCCESS },
+            MemException(e)  => { handle_mem_exception(vaddr, e); RETIRE_FAIL },
           },
       }
     }
@@ -116,52 +121,64 @@ function clause execute (STORECON(aq, rl, rs2, rs1, width, rd)) = {
   // This is checked during decoding.
   assert(width_bytes <= xlen_bytes);
 
-  if speculate_conditional () == false then {
-    /* should only happen in rmem
-     * rmem: allow SC to fail very early
-     */
-    X(rd) = zero_extend(0b1); RETIRE_SUCCESS
-  } else {
-    /* normal non-rmem case
-      * rmem: SC is allowed to succeed (but might fail later)
-      */
-    /* Get the address, X(rs1) (no offset).
-      * Extensions might perform additional checks on address validity.
-      */
-    match ext_data_get_addr(rs1, zeros(), Write(Data), width_bytes) {
-      Ext_DataAddr_Error(e)  => { ext_handle_data_check_error(e); RETIRE_FAIL },
-      Ext_DataAddr_OK(vaddr) => {
-        if not(is_aligned(vaddr, width))
-        then { handle_mem_exception(vaddr, E_SAMO_Addr_Align()); RETIRE_FAIL }
-        else {
-          match translateAddr(vaddr, Write(Data)) {  /* Write and ReadWrite are equivalent here:
-                                                      * both result in a SAMO exception */
-            TR_Failure(e, _) => { handle_mem_exception(vaddr, e); RETIRE_FAIL },
-            TR_Address(addr, _) => {
-              // Check reservation with physical address.
-              if not(match_reservation(addr)) then {
-                /* cannot happen in rmem */
-                X(rd) = zero_extend(0b1); cancel_reservation(); RETIRE_SUCCESS
-              } else {
-                let eares = mem_write_ea(addr, width_bytes, aq & rl, rl, true);
-                match eares {
-                  MemException(e) => { handle_mem_exception(vaddr, e); RETIRE_FAIL },
-                  MemValue(_) => {
-                    let rs2_val = X(rs2);
-                    match mem_write_value(addr, width_bytes, rs2_val[width_bytes * 8 - 1 .. 0], aq & rl, rl, true) {
-                      MemValue(true)  => { X(rd) = zero_extend(0b0); cancel_reservation(); RETIRE_SUCCESS },
-                      MemValue(false) => { X(rd) = zero_extend(0b1); cancel_reservation(); RETIRE_SUCCESS },
-                      MemException(e) => { handle_mem_exception(vaddr, e); RETIRE_FAIL }
+  /* Get the address, X(rs1) (no offset).
+    * Extensions might perform additional checks on address validity.
+    */
+  let (vaddr, check_result) = ext_data_get_addr(rs1, zeros(), Write(Data), width_bytes);
+  match check_and_handle_store_vaddr_for_triggers(vaddr, get_arch_pc()) {
+    Some(ret) => return ret,
+    _ => ()
+  };
+  let res : Retired = match check_result {
+    Ext_DataAddr_Error(e)  => { ext_handle_data_check_error(e); RETIRE_FAIL },
+    Ext_DataAddr_OK() => {
+      if not(is_aligned(vaddr, width))
+      then { handle_mem_exception(vaddr, E_SAMO_Addr_Align()); RETIRE_FAIL }
+      else {
+        // SC must always be aligned so it can never span a page, which means
+        // we can use translateAddr() directly. We have to do address translation
+        // first because it may fail due to access conditions (PMPs/PMAs).
+        match translateAddr(vaddr, Write(Data)) {  /* Write and ReadWrite are equivalent here:
+                                                    * both result in a SAMO exception */
+          TR_Failure(e) => { handle_mem_exception(vaddr, e); RETIRE_FAIL },
+          TR_Address(addr, pbmt, _) => {
+            // Explicitly do access checks first in case the memory does
+            // not exist or doesn't support LR/SC.
+            let typ = Write(default_write_acc);
+            let priv = effectivePrivilege(typ, mstatus, cur_privilege());
+            match phys_access_check(typ, priv, pbmt, addr, width_bytes, true) {
+              Some(e) => { handle_mem_exception(vaddr, e); RETIRE_FAIL },
+              None() => {
+                if not(speculate_conditional()) | not(match_reservation(addr)) then {
+                  // Spurious failure (this is allowed), or the reservation
+                  // address does not match.
+                  X(rd) = zero_extend(0b1); RETIRE_SUCCESS
+                } else {
+                  match mem_write_ea(addr, width_bytes, aq & rl, rl, true) {
+                    MemException(e) => { handle_mem_exception(vaddr, e); RETIRE_FAIL },
+                    MemValue(_) => {
+                      let rs2_val = X(rs2);
+                      match mem_write_value(pbmt, addr, width_bytes, rs2_val[width_bytes * 8 - 1 .. 0], aq & rl, rl, true) {
+                        MemValue(true)  => { X(rd) = zero_extend(0b0); RETIRE_SUCCESS },
+                        MemValue(false) => { X(rd) = zero_extend(0b1); RETIRE_SUCCESS },
+                        MemException(e) => { handle_mem_exception(vaddr, e); RETIRE_FAIL }
+                      }
                     }
                   }
                 }
-              }
+              },
             }
           }
         }
       }
     }
-  }
+  };
+  // The spec says "Regardless of success or failure, executing an SC
+  // instruction invalidates any reservation held by this hart", however it
+  // seems like "failure" here does not include failure due to exceptions.
+  // See https://github.com/riscv/riscv-isa-manual/issues/1010
+  if res == RETIRE_SUCCESS then cancel_reservation();
+  res
 }
 
 mapping clause assembly = STORECON(aq, rl, rs2, rs1, size, rd)
@@ -199,20 +216,25 @@ function clause execute (AMO(op, aq, rl, rs2, rs1, width, rd)) = {
   /* Get the address, X(rs1) (no offset).
     * Some extensions perform additional checks on address validity.
     */
-  match ext_data_get_addr(rs1, zeros(), ReadWrite(Data, Data), width_bytes) {
+  let (vaddr, check_result) = ext_data_get_addr(rs1, zeros(), ReadWrite(Data, Data), width_bytes);
+  match check_and_handle_amo_vaddr_for_triggers(vaddr, get_arch_pc()) {
+    Some(ret) => return ret,
+    _ => ()
+  };
+  match check_result {
     Ext_DataAddr_Error(e)  => { ext_handle_data_check_error(e); RETIRE_FAIL },
-    Ext_DataAddr_OK(vaddr) => {
+    Ext_DataAddr_OK() => {
       if not(is_aligned(vaddr, width))
       then { handle_mem_exception(vaddr, E_SAMO_Addr_Align()); RETIRE_FAIL }
       else match translateAddr(vaddr, ReadWrite(Data, Data)) {
-        TR_Failure(e, _) => { handle_mem_exception(vaddr, e); RETIRE_FAIL },
-        TR_Address(addr, _) => {
+        TR_Failure(e) => { handle_mem_exception(vaddr, e); RETIRE_FAIL },
+        TR_Address(addr, pbmt, _) => {
           let eares = mem_write_ea(addr, width_bytes, aq & rl, rl, true);
           let rs2_val = X(rs2)[width_bytes * 8 - 1 .. 0];
           match eares {
             MemException(e) => { handle_mem_exception(vaddr, e); RETIRE_FAIL },
             MemValue(_) => {
-              match mem_read(ReadWrite(Data, Data), addr, width_bytes, aq, aq & rl, true) {
+              match mem_read(ReadWrite(Data, Data), pbmt, addr, width_bytes, aq, aq & rl, true) {
                 MemException(e)  => { handle_mem_exception(vaddr, e); RETIRE_FAIL },
                 MemValue(loaded) => {
                   let result : bits('width_bytes * 8) =
@@ -227,7 +249,7 @@ function clause execute (AMO(op, aq, rl, rs2, rs1, width, rd)) = {
                       AMOMINU => if rs2_val <_u loaded then rs2_val else loaded,
                       AMOMAXU => if rs2_val >_u loaded then rs2_val else loaded,
                     };
-                  match mem_write_value(addr, width_bytes, sign_extend(result), aq & rl, rl, true) {
+                  match mem_write_value_amo(pbmt, addr, width_bytes, sign_extend(result), aq & rl, rl, true) {
                     MemValue(true)  => { X(rd) = sign_extend(loaded); RETIRE_SUCCESS },
                     MemValue(false) => { internal_error(__FILE__, __LINE__, "AMO got false from mem_write_value") },
                     MemException(e) => { handle_mem_exception(vaddr, e); RETIRE_FAIL }

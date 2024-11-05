@@ -96,7 +96,9 @@ function pmpTORLocked(cfg: Pmpcfg_ent) -> bool =
    (cfg[L] == 0b1) & (pmpAddrMatchType_of_bits(cfg[A]) == TOR)
 
 function pmpWriteCfg(n: range(0, 63), cfg: Pmpcfg_ent, v: bits(8)) -> Pmpcfg_ent =
-  if pmpLocked(cfg) then cfg
+  // If the PMP entry is locked or it is not writable (all PMP entry fields
+  // are WARL and can be read-only zero) then don't modify it.
+  if pmpLocked(cfg) | sys_pmp_writable()[n] == bitzero then cfg
   else {
     // Bits 5 and 6 are zero.
     let cfg = Mk_Pmpcfg_ent(v & 0x9f);
@@ -133,16 +135,25 @@ function pmpWriteCfgReg(n : range(0, 15), v : xlenbits) -> unit = {
   }
 }
 
+
 function pmpWriteAddr(locked: bool, tor_locked: bool, reg: xlenbits, v: xlenbits) -> xlenbits =
-  if   xlen == 32
-  then { if (locked | tor_locked) then reg else v }
-  else { if (locked | tor_locked) then reg else zero_extend(v[53..0]) }
+  if (locked | tor_locked) then reg
+  else {
+    // Address bits higher then PA_BITS-1 are read-only zero, but
+    // pmpaddr does not contain the lowest 2 bits of the addresses
+    // so we actually use PA_BITS-3.
+    let pa_bits = sys_pa_bits();
+    assert(pa_bits <= xlen);
+    zero_extend(v[pa_bits - 3 .. 0])
+  }
 
 function pmpWriteAddrReg(n : range(0, 63), v : xlenbits) -> unit = {
-  pmpaddr_n[n] = pmpWriteAddr(
-    pmpLocked(pmpcfg_n[n]),
-    if n + 1 < 64 then pmpTORLocked(pmpcfg_n[n + 1]) else false,
-    pmpaddr_n[n],
-    v,
-  );
+  if sys_pmp_writable()[n] == bitone then {
+    pmpaddr_n[n] = pmpWriteAddr(
+      pmpLocked(pmpcfg_n[n]),
+      if n + 1 < 64 then pmpTORLocked(pmpcfg_n[n + 1]) else false,
+      pmpaddr_n[n],
+      v,
+    );
+  }
 }

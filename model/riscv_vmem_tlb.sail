@@ -29,7 +29,7 @@ struct TLB_Entry = {
 
 // 64 entries is based on benchmarks of Linux boots and is where you stop
 // seeing performance improvements.
-type num_tlb_entries : Int = 64
+type num_tlb_entries : Int = 256
 type tlb_index_range = range(0, num_tlb_entries - 1)
 
 // PRIVATE
@@ -42,11 +42,35 @@ register tlb : vector(num_tlb_entries, option(TLB_Entry)) = [
   None(), None(), None(), None(), None(), None(), None(), None(),
   None(), None(), None(), None(), None(), None(), None(), None(),
   None(), None(), None(), None(), None(), None(), None(), None(),
+  None(), None(), None(), None(), None(), None(), None(), None(),
+  None(), None(), None(), None(), None(), None(), None(), None(),
+  None(), None(), None(), None(), None(), None(), None(), None(),
+  None(), None(), None(), None(), None(), None(), None(), None(),
+  None(), None(), None(), None(), None(), None(), None(), None(),
+  None(), None(), None(), None(), None(), None(), None(), None(),
+  None(), None(), None(), None(), None(), None(), None(), None(),
+  None(), None(), None(), None(), None(), None(), None(), None(),
+  None(), None(), None(), None(), None(), None(), None(), None(),
+  None(), None(), None(), None(), None(), None(), None(), None(),
+  None(), None(), None(), None(), None(), None(), None(), None(),
+  None(), None(), None(), None(), None(), None(), None(), None(),
+  None(), None(), None(), None(), None(), None(), None(), None(),
+  None(), None(), None(), None(), None(), None(), None(), None(),
+  None(), None(), None(), None(), None(), None(), None(), None(),
+  None(), None(), None(), None(), None(), None(), None(), None(),
+  None(), None(), None(), None(), None(), None(), None(), None(),
+  None(), None(), None(), None(), None(), None(), None(), None(),
+  None(), None(), None(), None(), None(), None(), None(), None(),
+  None(), None(), None(), None(), None(), None(), None(), None(),
+  None(), None(), None(), None(), None(), None(), None(), None(),
+  None(), None(), None(), None(), None(), None(), None(), None(),
+  None(), None(), None(), None(), None(), None(), None(), None(),
+  None(), None(), None(), None(), None(), None(), None(), None(),
 ]
 
 // Indexed by the lowest bits of the VPN.
 function tlb_hash(vaddr : bits(64)) -> tlb_index_range =
-  unsigned(vaddr[17 .. 12])
+  unsigned(vaddr[19 .. 12])
 
 // PUBLIC: invoked in init_vmem() [riscv_vmem.sail]
 function init_TLB() -> unit = {
@@ -117,6 +141,20 @@ function add_to_TLB(asid          : asidbits,
   // to add it to the index corresponding to the page because that is how
   // lookup_TLB looks it up. For superpages will just end up with the same
   // TLB entry in multiple slots.
+  //
+  // Having duplicate entries for the same page might sound like it would
+  // cause issues with the accessed and dirty bits going out of sync but it
+  // shouldn't because:
+  //
+  // 1. All TLB entries should have the accessed bit set by definition.
+  // 2. If there are writes to duplicate entries then the first one will
+  //    set its dirty bit and write the PTE to memory, then the second will
+  //    do exactly the same thing, which is harmless.
+  //
+  // If hardware dirtying is not supported then software will take a trap,
+  // set the dirty big, and run sfence.vma on that address. Since the flush_TLB
+  // loop doesn't try to be clever and checks every index, all the duplicates
+  // will be cleared.
   let index = tlb_hash(vAddr);
   tlb[index] = Some(entry);
 }
@@ -135,6 +173,8 @@ function flush_TLB(asid_xlen : option(xlenbits),
       None()  => None(),
       Some(a) => Some(zero_extend(a))
     };
+  // Note due to super-pages there may be more than one entry that matches so
+  // we have to loop over the entire array. See the comment in add_to_TLB.
   foreach (i from 0 to (length(tlb) - 1)) {
     match tlb[i] {
       Some(e) => if flush_TLB_Entry(e, asid, addr_64b) then { tlb[i] = None(); },

@@ -10,6 +10,7 @@ default Order dec
 
 $include <smt.sail>
 $include <option.sail>
+$include <result.sail>
 $include <arith.sail>
 $include <string.sail>
 $include <mapping.sail>
@@ -55,8 +56,11 @@ val rem_round_zero = pure {interpreter: "rem_round_zero", lem: "hardware_mod", c
 /* The following defines % as euclidean modulus */
 overload operator % = {emod_int}
 
-overload min = {min_int}
-overload max = {max_int}
+function min_bits forall 'n, 'n >= 0 . (x : bits('n), y : bits('n)) -> bits('n) = if unsigned(x) > unsigned(y) then x else y
+function max_bits forall 'n, 'n >= 0 . (x : bits('n), y : bits('n)) -> bits('n) = if unsigned(x) < unsigned(y) then x else y
+
+overload min = {min_int, min_bits}
+overload max = {max_int, max_bits}
 
 val print_string = pure "print_string" : (string, string) -> unit
 
@@ -66,6 +70,9 @@ val print_mem      = pure {interpreter: "print_endline", c: "print_mem_access", 
 val print_platform = pure {interpreter: "print_endline", c: "print_platform", lem: "print_dbg", _: "print_endline"} : string -> unit
 
 val print_step = pure {c: "print_step"} : unit -> unit
+
+// Call to print a C backtrace (which will include the Sail backtrace).
+val print_backtrace = pure {c: "print_backtrace"} : unit -> unit
 
 function print_step() = ()
 
@@ -218,3 +225,21 @@ function log2(n) = {
   };
   result
 }
+
+/* This is a slightly arbitrary limit on the maximum number of bytes
+   in a memory access.  It helps to generate slightly better C code
+   because it means width argument can be fast native integer. It
+   would be even better if it could be <= 8 bytes so that data can
+   also be a 64-bit int but CHERI needs 128-bit accesses for
+   capabilities and SIMD / vector instructions will also need more.
+
+   The specific value does not matter (if it is >8) since anything up
+   to 2^64-1 will result in a native int being used for the width type.
+
+   4096 was chosen because it is a page size, and a reasonable maximum
+   for cbo.zero.
+   */
+type max_mem_access : Int = 4096
+
+// Type used for memory access widths. Zero byte accesses are not allowed.
+type mem_access_width = range(1, max_mem_access)

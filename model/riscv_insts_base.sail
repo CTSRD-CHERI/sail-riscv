@@ -329,19 +329,19 @@ function clause execute(LOAD(imm, rs1, rd, is_unsigned, width, aq, rl)) = {
 
   /* Get the address, X(rs1) + offset.
      Some extensions perform additional checks on address validity. */
-  match ext_data_get_addr(rs1, offset, Read(Data), width_bytes) {
+  let (vaddr, check_result) = ext_data_get_addr(rs1, offset, Read(Data), width_bytes);
+  match check_and_handle_load_vaddr_for_triggers(vaddr, get_arch_pc()) {
+    Some(ret) => return ret,
+    _ => ()
+  };
+  match check_result {
     Ext_DataAddr_Error(e)  => { ext_handle_data_check_error(e); RETIRE_FAIL },
-    Ext_DataAddr_OK(vaddr) => {
+    Ext_DataAddr_OK() => {
       if   check_misaligned(vaddr, width)
       then { handle_mem_exception(vaddr, E_Load_Addr_Align()); RETIRE_FAIL }
-      else match translateAddr(vaddr, Read(Data)) {
-        TR_Failure(e, _) => { handle_mem_exception(vaddr, e); RETIRE_FAIL },
-        TR_Address(paddr, _) =>
-
-          match mem_read(Read(Data), paddr, width_bytes, aq, rl, false) {
-            MemValue(result) => { X(rd) = extend_value(is_unsigned, result); RETIRE_SUCCESS },
-            MemException(e) => { handle_mem_exception(vaddr, e); RETIRE_FAIL },
-          },
+      else match vmem_read(Read(Data), vaddr, width_bytes, aq, rl, false) {
+        Ok(result)    => { X(rd) = extend_value(is_unsigned, result); RETIRE_SUCCESS },
+        Err(vaddr, e) => { handle_mem_exception(vaddr, e); RETIRE_FAIL }
       }
     },
   }
@@ -385,28 +385,28 @@ function clause execute (STORE(imm, rs2, rs1, width, aq, rl)) = {
 
   /* Get the address, X(rs1) + offset.
      Some extensions perform additional checks on address validity. */
-  match ext_data_get_addr(rs1, offset, Write(Data), width_bytes) {
+  let (vaddr, check_result) = ext_data_get_addr(rs1, offset, Write(Data), width_bytes);
+  match check_and_handle_store_vaddr_for_triggers(vaddr, get_arch_pc()) {
+    Some(ret) => return ret,
+    _ => ()
+  };
+  match check_result {
     Ext_DataAddr_Error(e)  => { ext_handle_data_check_error(e); RETIRE_FAIL },
-    Ext_DataAddr_OK(vaddr) =>
+    Ext_DataAddr_OK() => {
       if   check_misaligned(vaddr, width)
       then { handle_mem_exception(vaddr, E_SAMO_Addr_Align()); RETIRE_FAIL }
-      else match translateAddr(vaddr, Write(Data)) {
-        TR_Failure(e, _)    => { handle_mem_exception(vaddr, e); RETIRE_FAIL },
-        TR_Address(paddr, _) => {
-          let eares = mem_write_ea(paddr, width_bytes, aq, rl, false);
-          match (eares) {
-            MemException(e) => { handle_mem_exception(vaddr, e); RETIRE_FAIL },
-            MemValue(_) => {
-              let rs2_val = X(rs2);
-              match mem_write_value(paddr, width_bytes, rs2_val[width_bytes * 8 - 1 .. 0], aq, rl, false) {
-                MemValue(true)  => RETIRE_SUCCESS,
-                MemValue(false) => internal_error(__FILE__, __LINE__, "store got false from mem_write_value"),
-                MemException(e) => { handle_mem_exception(vaddr, e); RETIRE_FAIL }
-              }
-            }
+      else match vmem_write_translate(vaddr, width_bytes, Write(Data), aq, rl, false) {
+        Err(vaddr, e) => { handle_mem_exception(vaddr, e); RETIRE_FAIL },
+        Ok(state)     => {
+          let rs2_val = X(rs2);
+          match vmem_write_value(state, rs2_val[width_bytes * 8 - 1 .. 0]) {
+            Ok(true)  => RETIRE_SUCCESS,
+            Ok(false) => internal_error(__FILE__, __LINE__, "store got false from mem_write_value"),
+            Err(vaddr, e) => { handle_mem_exception(vaddr, e); RETIRE_FAIL }
           }
         }
       }
+    }
   }
 }
 
@@ -615,14 +615,14 @@ mapping clause encdec = ECALL()
 
 function clause execute ECALL() = {
   let t : sync_exception =
-    struct { trap = match (cur_privilege) {
+    struct { trap = match (cur_privilege()) {
                       User       => E_U_EnvCall(),
                       Supervisor => E_S_EnvCall(),
                       Machine    => E_M_EnvCall()
                     },
              excinfo = (None() : option(xlenbits)),
              ext     = None() };
-  set_next_pc(exception_handler(cur_privilege, CTL_TRAP(t), PC));
+  set_next_pc(exception_handler(cur_privilege(), CTL_TRAP(t), PC));
   RETIRE_FAIL
 }
 
@@ -635,12 +635,12 @@ mapping clause encdec = MRET()
   <-> 0b0011000 @ 0b00010 @ 0b00000 @ 0b000 @ 0b00000 @ 0b1110011
 
 function clause execute MRET() = {
-  if   cur_privilege != Machine
+  if   cur_privilege() != Machine
   then { handle_illegal(); RETIRE_FAIL }
   else if not(ext_check_xret_priv (Machine))
   then { ext_fail_xret_priv(); RETIRE_FAIL }
   else {
-    set_next_pc(exception_handler(cur_privilege, CTL_MRET(), PC));
+    set_next_pc(exception_handler(cur_privilege(), CTL_MRET(), PC));
     RETIRE_SUCCESS
   }
 }
@@ -654,7 +654,7 @@ mapping clause encdec = SRET()
   <-> 0b0001000 @ 0b00010 @ 0b00000 @ 0b000 @ 0b00000 @ 0b1110011
 
 function clause execute SRET() = {
-  let sret_illegal : bool = match cur_privilege {
+  let sret_illegal : bool = match cur_privilege() {
     User       => true,
     Supervisor => not(extensionEnabled(Ext_S)) | mstatus[TSR] == 0b1,
     Machine    => not(extensionEnabled(Ext_S))
@@ -664,7 +664,7 @@ function clause execute SRET() = {
   else if not(ext_check_xret_priv (Supervisor))
   then { ext_fail_xret_priv(); RETIRE_FAIL }
   else {
-    set_next_pc(exception_handler(cur_privilege, CTL_SRET(), PC));
+    set_next_pc(exception_handler(cur_privilege(), CTL_SRET(), PC));
     RETIRE_SUCCESS
   }
 }
@@ -678,7 +678,16 @@ mapping clause encdec = EBREAK()
   <-> 0b000000000001 @ 0b00000 @ 0b000 @ 0b00000 @ 0b1110011
 
 function clause execute EBREAK() = {
-  handle_mem_exception(PC, E_Breakpoint());
+  let ebreak_debug_entry : bool = match (cur_privilege()) {
+    Machine => dcsr.EBREAKM() == 0b1,
+    Supervisor => dcsr.EBREAKS() == 0b1,
+    User => dcsr.EBREAKU() == 0b1,
+  };
+  if ebreak_debug_entry & not (debug_mode_active) then {
+    enter_debug_mode(DEBUG_MODE_CAUSE_EBREAK);
+  } else {
+    handle_mem_exception(PC, E_Breakpoint());
+  };
   RETIRE_FAIL
 }
 
@@ -691,8 +700,11 @@ mapping clause encdec = WFI()
   <-> 0b000100000101 @ 0b00000 @ 0b000 @ 0b00000 @ 0b1110011
 
 function clause execute WFI() =
-  match cur_privilege {
-    Machine    => { platform_wfi(); RETIRE_SUCCESS },
+  match cur_privilege() {
+    Machine    => {
+      if not(debug_mode_active) then platform_wfi(); // In debug mode, WFI is a NOP
+      RETIRE_SUCCESS
+    },
     Supervisor => if   mstatus[TW] == 0b1
                   then { handle_illegal(); RETIRE_FAIL }
                   else { platform_wfi(); RETIRE_SUCCESS },
@@ -710,7 +722,7 @@ mapping clause encdec = SFENCE_VMA(rs1, rs2)
 function clause execute SFENCE_VMA(rs1, rs2) = {
   let addr : option(xlenbits) = if rs1 == 0b00000 then None() else Some(X(rs1));
   let asid : option(xlenbits) = if rs2 == 0b00000 then None() else Some(X(rs2));
-  match cur_privilege {
+  match cur_privilege() {
     User       => { handle_illegal(); RETIRE_FAIL },
     Supervisor => match (architecture(get_mstatus_SXL(mstatus)), mstatus[TVM]) {
                     (Some(_), 0b1)  => { handle_illegal(); RETIRE_FAIL },

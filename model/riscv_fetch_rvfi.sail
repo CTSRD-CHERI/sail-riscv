@@ -7,9 +7,9 @@
 /*=======================================================================================*/
 
 function fetch() -> FetchResult = {
-  rvfi_inst_data[rvfi_order] = minstret;
+  rvfi_inst_data[rvfi_order]    = minstret;
   rvfi_pc_data[rvfi_pc_rdata] = zero_extend(get_arch_pc());
-  rvfi_inst_data[rvfi_mode] = zero_extend(privLevel_to_bits(cur_privilege));
+  rvfi_inst_data[rvfi_mode] = zero_extend(privLevel_to_bits(cur_privilege()));
   rvfi_inst_data[rvfi_ixl] = zero_extend(misa[MXL]);
 
   /* First allow extensions to check pc */
@@ -20,8 +20,8 @@ function fetch() -> FetchResult = {
       if   (use_pc[0] != bitzero | (use_pc[1] != bitzero & not(extensionEnabled(Ext_Zca))))
       then F_Error(E_Fetch_Addr_Align(), PC)
       else match translateAddr(use_pc, Execute()) {
-        TR_Failure(e, _) => F_Error(e, PC),
-        TR_Address(_, _) => {
+        TR_Failure(e) => F_Error(e, PC),
+        TR_Address(_, _, _) => {
           let i = rvfi_instruction[rvfi_insn];
           rvfi_inst_data[rvfi_insn]   = zero_extend(i);
           if   (i[1 .. 0] != 0b11)
@@ -33,8 +33,8 @@ function fetch() -> FetchResult = {
               Ext_FetchAddr_Error(e)      => F_Ext_Error(e),
               Ext_FetchAddr_OK(use_pc_hi) =>
                 match translateAddr(use_pc_hi, Execute()) {
-                  TR_Failure(e, _) => F_Error(e, PC),
-                  TR_Address(_, _) => F_Base(i)
+                  TR_Failure(e) => F_Error(e, PC),
+                  TR_Address(_, _, _) => F_Base(i)
               }
             }
           }

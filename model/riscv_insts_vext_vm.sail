@@ -30,7 +30,12 @@ function clause execute(VVMTYPE(funct6, vs2, vs1, vd)) = {
   let LMUL_pow = get_lmul_pow();
   let num_elem = get_num_elem(LMUL_pow, SEW);
 
-  if illegal_vd_unmasked() then { handle_illegal(); return RETIRE_FAIL };
+  if  illegal_vd_unmasked() |
+      not(valid_vmreg_overlap(vs2, vd, LMUL_pow)) |
+      not(valid_vmreg_overlap(vs1, vd, LMUL_pow)) |
+      misaligned_vreg(vs2, LMUL_pow) |
+      misaligned_vreg(vs1, LMUL_pow)
+  then { handle_illegal(); return RETIRE_FAIL };
 
   let 'n = num_elem;
   let 'm = SEW;
@@ -54,7 +59,7 @@ function clause execute(VVMTYPE(funct6, vs2, vs1, vd)) = {
   };
 
   write_vmask(num_elem, vd, result);
-  vstart = zeros();
+  write_vstart(0);
   RETIRE_SUCCESS
 }
 
@@ -85,7 +90,12 @@ function clause execute(VVMCTYPE(funct6, vs2, vs1, vd)) = {
   let LMUL_pow = get_lmul_pow();
   let num_elem = get_num_elem(LMUL_pow, SEW);
 
-  if illegal_vd_unmasked() then { handle_illegal(); return RETIRE_FAIL };
+  if  illegal_vd_unmasked() |
+      not(valid_vmreg_overlap(vs2, vd, LMUL_pow)) |
+      not(valid_vmreg_overlap(vs1, vd, LMUL_pow)) |
+      misaligned_vreg(vs2, LMUL_pow) |
+      misaligned_vreg(vs1, LMUL_pow)
+  then { handle_illegal(); return RETIRE_FAIL };
 
   let 'n = num_elem;
   let 'm = SEW;
@@ -108,7 +118,7 @@ function clause execute(VVMCTYPE(funct6, vs2, vs1, vd)) = {
   };
 
   write_vmask(num_elem, vd, result);
-  vstart = zeros();
+  write_vstart(0);
   RETIRE_SUCCESS
 }
 
@@ -139,16 +149,17 @@ function clause execute(VVMSTYPE(funct6, vs2, vs1, vd)) = {
   let LMUL_pow = get_lmul_pow();
   let num_elem = get_num_elem(LMUL_pow, SEW);
 
-  if illegal_vd_masked(vd) then { handle_illegal(); return RETIRE_FAIL };
+  if  illegal_vd_masked(vd) |
+      misaligned_vreg(vd, LMUL_pow) |
+      misaligned_vreg(vs2, LMUL_pow) |
+      misaligned_vreg(vs1, LMUL_pow)
+  then { handle_illegal(); return RETIRE_FAIL };
 
   let 'n = num_elem;
   let 'm = SEW;
 
   /* for bypassing normal masking in init_masked_result */
-  var vec_trues : vector('n, bool) = undefined;
-  foreach (i from 0 to (num_elem - 1)) {
-    vec_trues[i] = true
-  };
+  let vec_trues : vector('n, bool) = vector_init(true);
 
   let vm_val  : vector('n, bool)     = read_vmask_carry(num_elem, 0b0, 0b00000);
   let vs1_val : vector('n, bits('m)) = read_vreg(num_elem, SEW, LMUL_pow, vs1);
@@ -168,7 +179,7 @@ function clause execute(VVMSTYPE(funct6, vs2, vs1, vd)) = {
   };
 
   write_vreg(num_elem, SEW, LMUL_pow, vd, result);
-  vstart = zeros();
+  write_vstart(0);
   RETIRE_SUCCESS
 }
 
@@ -201,7 +212,12 @@ function clause execute(VVCMPTYPE(funct6, vm, vs2, vs1, vd)) = {
   let LMUL_pow = get_lmul_pow();
   let num_elem = get_num_elem(LMUL_pow, SEW);
 
-  if illegal_vd_unmasked() then { handle_illegal(); return RETIRE_FAIL };
+  if  illegal_vd_unmasked() |
+      not(valid_vmreg_overlap(vs2, vd, LMUL_pow)) |
+      not(valid_vmreg_overlap(vs1, vd, LMUL_pow)) |
+      misaligned_vreg(vs2, LMUL_pow) |
+      misaligned_vreg(vs1, LMUL_pow)
+  then { handle_illegal(); return RETIRE_FAIL };
 
   let 'n = num_elem;
   let 'm = SEW;
@@ -229,7 +245,7 @@ function clause execute(VVCMPTYPE(funct6, vm, vs2, vs1, vd)) = {
   };
 
   write_vmask(num_elem, vd, result);
-  vstart = zeros();
+  write_vstart(0);
   RETIRE_SUCCESS
 }
 
@@ -264,7 +280,10 @@ function clause execute(VXMTYPE(funct6, vs2, rs1, vd)) = {
   let LMUL_pow = get_lmul_pow();
   let num_elem = get_num_elem(LMUL_pow, SEW);
 
-  if illegal_vd_unmasked() then { handle_illegal(); return RETIRE_FAIL };
+  if  illegal_vd_masked(vd) |
+      misaligned_vreg(vs2, LMUL_pow) |
+      not(valid_vmreg_overlap(vs2, vd, LMUL_pow))
+  then { handle_illegal(); return RETIRE_FAIL };
 
   let 'n = num_elem;
   let 'm = SEW;
@@ -288,7 +307,7 @@ function clause execute(VXMTYPE(funct6, vs2, rs1, vd)) = {
   };
 
   write_vmask(num_elem, vd, result);
-  vstart = zeros();
+  write_vstart(0);
   RETIRE_SUCCESS
 }
 
@@ -319,7 +338,10 @@ function clause execute(VXMCTYPE(funct6, vs2, rs1, vd)) = {
   let LMUL_pow = get_lmul_pow();
   let num_elem = get_num_elem(LMUL_pow, SEW);
 
-  if illegal_vd_unmasked() then { handle_illegal(); return RETIRE_FAIL };
+  if  illegal_vd_unmasked() |
+      not(valid_vmreg_overlap(vs2, vd, LMUL_pow)) |
+      misaligned_vreg(vs2, LMUL_pow)
+  then { handle_illegal(); return RETIRE_FAIL };
 
   let 'n = num_elem;
   let 'm = SEW;
@@ -342,7 +364,7 @@ function clause execute(VXMCTYPE(funct6, vs2, rs1, vd)) = {
   };
 
   write_vmask(num_elem, vd, result);
-  vstart = zeros();
+  write_vstart(0);
   RETIRE_SUCCESS
 }
 
@@ -373,16 +395,16 @@ function clause execute(VXMSTYPE(funct6, vs2, rs1, vd)) = {
   let LMUL_pow = get_lmul_pow();
   let num_elem = get_num_elem(LMUL_pow, SEW);
 
-  if illegal_vd_masked(vd) then { handle_illegal(); return RETIRE_FAIL };
+  if  illegal_vd_masked(vd) |
+      misaligned_vreg(vd, LMUL_pow) |
+      misaligned_vreg(vs2, LMUL_pow)
+  then { handle_illegal(); return RETIRE_FAIL };
 
   let 'n = num_elem;
   let 'm = SEW;
 
   /* for bypassing normal masking in init_masked_result */
-  var vec_trues : vector('n, bool) = undefined;
-  foreach (i from 0 to (num_elem - 1)) {
-    vec_trues[i] = true
-  };
+  let vec_trues : vector('n, bool) = vector_init(true);
 
   let vm_val  : vector('n, bool)     = read_vmask_carry(num_elem, 0b0, 0b00000);
   let rs1_val : bits('m)                  = get_scalar(rs1, SEW);
@@ -402,7 +424,7 @@ function clause execute(VXMSTYPE(funct6, vs2, rs1, vd)) = {
   };
 
   write_vreg(num_elem, SEW, LMUL_pow, vd, result);
-  vstart = zeros();
+  write_vstart(0);
   RETIRE_SUCCESS
 }
 
@@ -437,7 +459,10 @@ function clause execute(VXCMPTYPE(funct6, vm, vs2, rs1, vd)) = {
   let LMUL_pow = get_lmul_pow();
   let num_elem = get_num_elem(LMUL_pow, SEW);
 
-  if illegal_vd_unmasked() then { handle_illegal(); return RETIRE_FAIL };
+  if  illegal_vd_unmasked() |
+      not(valid_vmreg_overlap(vs2, vd, LMUL_pow)) |
+      misaligned_vreg(vs2, LMUL_pow)
+  then { handle_illegal(); return RETIRE_FAIL };
 
   let 'n = num_elem;
   let 'm = SEW;
@@ -467,7 +492,7 @@ function clause execute(VXCMPTYPE(funct6, vm, vs2, rs1, vd)) = {
   };
 
   write_vmask(num_elem, vd, result);
-  vstart = zeros();
+  write_vstart(0);
   RETIRE_SUCCESS
 }
 
@@ -503,7 +528,10 @@ function clause execute(VIMTYPE(funct6, vs2, simm, vd)) = {
   let LMUL_pow = get_lmul_pow();
   let num_elem = get_num_elem(LMUL_pow, SEW);
 
-  if illegal_vd_unmasked() then { handle_illegal(); return RETIRE_FAIL };
+  if  illegal_vd_unmasked() |
+      not(valid_vmreg_overlap(vs2, vd, LMUL_pow)) |
+      misaligned_vreg(vs2, LMUL_pow)
+  then { handle_illegal(); return RETIRE_FAIL };
 
   let 'n = num_elem;
   let 'm = SEW;
@@ -526,7 +554,7 @@ function clause execute(VIMTYPE(funct6, vs2, simm, vd)) = {
   };
 
   write_vmask(num_elem, vd, result);
-  vstart = zeros();
+  write_vstart(0);
   RETIRE_SUCCESS
 }
 
@@ -555,7 +583,10 @@ function clause execute(VIMCTYPE(funct6, vs2, simm, vd)) = {
   let LMUL_pow = get_lmul_pow();
   let num_elem = get_num_elem(LMUL_pow, SEW);
 
-  if illegal_vd_unmasked() then { handle_illegal(); return RETIRE_FAIL };
+  if  illegal_vd_unmasked() |
+      not(valid_vmreg_overlap(vs2, vd, LMUL_pow)) |
+      misaligned_vreg(vs2, LMUL_pow)
+  then { handle_illegal(); return RETIRE_FAIL };
 
   let 'n = num_elem;
   let 'm = SEW;
@@ -577,7 +608,7 @@ function clause execute(VIMCTYPE(funct6, vs2, simm, vd)) = {
   };
 
   write_vmask(num_elem, vd, result);
-  vstart = zeros();
+  write_vstart(0);
   RETIRE_SUCCESS
 }
 
@@ -606,16 +637,16 @@ function clause execute(VIMSTYPE(funct6, vs2, simm, vd)) = {
   let LMUL_pow = get_lmul_pow();
   let num_elem = get_num_elem(LMUL_pow, SEW);
 
-  if illegal_vd_masked(vd) then { handle_illegal(); return RETIRE_FAIL };
+  if  illegal_vd_masked(vd) |
+      misaligned_vreg(vd, LMUL_pow) |
+      misaligned_vreg(vs2, LMUL_pow)
+  then { handle_illegal(); return RETIRE_FAIL };
 
   let 'n = num_elem;
   let 'm = SEW;
 
   /* for bypassing normal masking in init_masked_result */
-  var vec_trues : vector('n, bool) = undefined;
-  foreach (i from 0 to (num_elem - 1)) {
-    vec_trues[i] = true
-  };
+  let vec_trues : vector('n, bool) = vector_init(true);
 
   let vm_val  : vector('n, bool)     = read_vmask_carry(num_elem, 0b0, 0b00000);
   let imm_val : bits('m)                  = sign_extend(simm);
@@ -634,7 +665,7 @@ function clause execute(VIMSTYPE(funct6, vs2, simm, vd)) = {
   };
 
   write_vreg(num_elem, SEW, LMUL_pow, vd, result);
-  vstart = zeros();
+  write_vstart(0);
   RETIRE_SUCCESS
 }
 
@@ -666,7 +697,10 @@ function clause execute(VICMPTYPE(funct6, vm, vs2, simm, vd)) = {
   let LMUL_pow = get_lmul_pow();
   let num_elem = get_num_elem(LMUL_pow, SEW);
 
-  if illegal_vd_unmasked() then { handle_illegal(); return RETIRE_FAIL };
+  if  illegal_vd_unmasked() |
+      not(valid_vmreg_overlap(vs2, vd, LMUL_pow)) |
+      misaligned_vreg(vs2, LMUL_pow)
+  then { handle_illegal(); return RETIRE_FAIL };
 
   let 'n = num_elem;
   let 'm = SEW;
@@ -694,7 +728,7 @@ function clause execute(VICMPTYPE(funct6, vm, vs2, simm, vd)) = {
   };
 
   write_vmask(num_elem, vd, result);
-  vstart = zeros();
+  write_vstart(0);
   RETIRE_SUCCESS
 }
 

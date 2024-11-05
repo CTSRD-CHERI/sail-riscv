@@ -9,7 +9,7 @@
 /* Machine-mode and supervisor-mode functionality. */
 
 enum clause extension = Ext_Zkr
-function clause extensionEnabled(Ext_Zkr) = true
+function clause extensionEnabled(Ext_Zkr) = sys_enable_zkr()
 
 /* CSR access control */
 
@@ -25,6 +25,7 @@ function clause is_CSR_defined(0xf12) = true // marchdid
 function clause is_CSR_defined(0xf13) = true // mimpid
 function clause is_CSR_defined(0xf14) = true // mhartid
 function clause is_CSR_defined(0xf15) = true // mconfigptr
+
 /* machine mode: trap setup */
 function clause is_CSR_defined(0x300) = true // mstatus
 function clause is_CSR_defined(0x301) = true // misa
@@ -38,13 +39,16 @@ function clause is_CSR_defined(0x310) = xlen == 32 // mstatush
 function clause is_CSR_defined(0x31A) = extensionEnabled(Ext_U) & (xlen == 32) // menvcfgh
 function clause is_CSR_defined(0x320) = true // mcountinhibit
 
-
 /* machine mode: trap handling */
 function clause is_CSR_defined(0x340) = true // mscratch
 function clause is_CSR_defined(0x341) = true // mepc
 function clause is_CSR_defined(0x342) = true // mcause
 function clause is_CSR_defined(0x343) = true // mtval
 function clause is_CSR_defined(0x344) = true // mip
+
+/* machine mode: security configuration */
+function clause is_CSR_defined(0x747) = true // mseccfg
+function clause is_CSR_defined(0x757) = xlen == 32 // mseccfgh
 
 // pmpcfgN
 function clause is_CSR_defined(0x3A) @ idx : bits(4) = sys_pmp_count() > unsigned(idx) & (idx[0] == bitzero | xlen == 32)
@@ -85,6 +89,10 @@ function clause is_CSR_defined(0x142) = extensionEnabled(Ext_S) // scause
 function clause is_CSR_defined(0x143) = extensionEnabled(Ext_S) // stval
 function clause is_CSR_defined(0x144) = extensionEnabled(Ext_S) // sip
 
+/* Sstc : supervisor timer register */
+function clause is_CSR_defined(0x14D) = extensionEnabled(Ext_S) & extensionEnabled(Ext_Sstc) // stimecmp
+function clause is_CSR_defined(0x15D) = extensionEnabled(Ext_S) & extensionEnabled(Ext_Sstc) & (xlen == 32) // stimecmph
+
 /* supervisor mode: address translation */
 function clause is_CSR_defined(0x180) = extensionEnabled(Ext_S) // satp
 
@@ -104,11 +112,13 @@ function clause is_CSR_defined(0b1100100 /* 0xC80 */ @ index : bits(5) if unsign
 /* user mode: Zkr */
 function clause is_CSR_defined(0x015) = extensionEnabled(Ext_Zkr)
 
+val check_CSR_priv : (csreg, Privilege) -> bool
+function check_CSR_priv(csr, p) =
+  privLevel_to_bits(p) >=_u csrPriv(csr)
 
-val check_CSR_access : (csrRW, priv_level, Privilege, bool) -> bool
-function check_CSR_access(csrrw, csrpr, p, isWrite) =
-    not(isWrite == true & csrrw == 0b11)  /* read/write */
-  & (privLevel_to_bits(p) >=_u csrpr)      /* privilege */
+val check_CSR_access : (csreg, bool) -> bool
+function check_CSR_access(csr, isWrite) =
+  not(isWrite & csrAccess(csr) == 0b11)
 
 function check_TVM_SATP(csr : csreg, p : Privilege) -> bool =
   not(csr == 0x180 & p == Supervisor & mstatus[TVM] == 0b1)
@@ -124,12 +134,21 @@ function feature_enabled_for_priv(p : Privilege, machine_enable_bit : bit, super
 // Return true if the counter is enabled OR the CSR is not a counter.
 function check_Counteren(csr : csreg, p : Privilege) -> bool = {
   // Check if it is not a counter.
-  if csr <_u 0xC00 | 0xC1F <_u csr
+  if not(csr >=_u 0xC00 & csr <=_u 0xC1F | csr >=_u 0xC80 & csr <=_u 0xC9F)
   then return true;
 
   // Check the relevant bit in m/scounteren.
   let index = unsigned(csr[4 .. 0]);
   feature_enabled_for_priv(p, mcounteren.bits[index], scounteren.bits[index])
+}
+
+// Return true if the stimecmp[h] CSR is accessible OR the CSR is not stimecmp[h].
+function check_Stimecmp(csr : csreg, p : Privilege) -> bool = {
+  // Check if it is not stimecmp.
+  if csr != 0x14D & csr != 0x15D
+  then return true;
+
+  p == Machine | (p == Supervisor & mcounteren[TM] == 0b1 & menvcfg[STCE] == 0b1)
 }
 
 /* Seed may only be accessed if we are doing a write, and access has been
@@ -144,17 +163,22 @@ function check_seed_CSR (csr : csreg, p : Privilege, isWrite : bool) -> bool = {
   } else {
     match (p) {
       Machine => true,
-      Supervisor => false, /* TODO: base this on mseccfg */
-      User => false, /* TODO: base this on mseccfg */
+      Supervisor => mseccfg[SSEED] == 0b1,
+      User => mseccfg[USEED] == 0b1,
     }
   }
 }
 
 function check_CSR(csr : csreg, p : Privilege, isWrite : bool) -> bool =
     is_CSR_defined(csr)
-  & check_CSR_access(csrAccess(csr), csrPriv(csr), p, isWrite)
+  & check_CSR_priv(csr, p)
+  & check_CSR_access(csr, isWrite)
+  // TODO: If we add `p` back to is_CSR_defined() we could move these three
+  // check_ functions back there. We should also rename is_CSR_defined()
+  // to is_CSR_accessible() or similar.
   & check_TVM_SATP(csr, p)
   & check_Counteren(csr, p)
+  & check_Stimecmp(csr, p)
   & check_seed_CSR(csr, p, isWrite)
 
 /* Reservation handling for LR/SC.
@@ -249,17 +273,46 @@ function getPendingSet(priv : Privilege) -> option((xlenbits, Privilege)) = {
   }
 }
 
+function updateDebugPendingNMI() -> unit = {
+  // This bit indicates to debuggers if an NMI is pending.
+  dcsr[NMIP] = bool_to_bits(nmi_pending);
+}
+
+function debugMaskingInterrupts() -> bool = {
+    // All interrupts are masked in Debug mode and when dcsr.stepie = 1 in step mode.
+    debug_mode_active | (dcsr.STEPIE() == 0b0 & dcsr.STEP() == 0b1)
+}
+
 /* Examine the current interrupt state and return an interrupt to be *
  * handled (if any), and the privilege it should be handled at.
  */
-function dispatchInterrupt(priv : Privilege) -> option((InterruptType, Privilege)) = {
+function dispatchClintInterrupt(priv : Privilege) -> option((exc_code, Privilege)) = {
   match getPendingSet(priv) {
     None()       => None(),
     Some(ip, p)  => match findPendingInterrupt(ip) {
                       None()  => None(),
-                      Some(i) => Some((i, p)),
+                      Some(i) => Some((interruptType_to_bits(i), p)),
                     }
   }
+}
+
+/* Examine the current interrupt state and return an interrupt to be *
+ * handled (if any), and the privilege it should be handled at.
+ */
+function dispatchInterrupt(priv : Privilege) -> option((exc_code, Privilege)) = {
+  if debugMaskingInterrupts() then return None();
+
+  if inSmclicMode() then
+    dispatchClicInterrupt(priv)
+  else
+    dispatchClintInterrupt(priv)
+}
+
+// This functions can be called externally (from C) to inject CLINT interrupts.
+function setInterruptPending(intr : exc_code, pending : bool) -> unit = {
+  let intr = unsigned(intr);
+  assert(intr < 32);
+  mip.bits[intr] = bool_to_bit(pending);
 }
 
 /* types of privilege transitions */
@@ -293,6 +346,8 @@ $endif
 
 function trap_handler(del_priv : Privilege, intr : bool, c : exc_code, pc : xlenbits, info : option(xlenbits), ext : option(ext_exception))
                      -> xlenbits = {
+  let top_ip_attr = clicintattr[unsigned(c)];
+
   rvfi_trap();
   if   get_config_print_platform()
   then print_platform("handling " ^ (if intr then "int#" else "exc#")
@@ -301,48 +356,91 @@ function trap_handler(del_priv : Privilege, intr : bool, c : exc_code, pc : xlen
 
   match (del_priv) {
     Machine => {
-       mcause[IsInterrupt] = bool_to_bits(intr);
-       mcause[Cause]       = zero_extend(c);
+      if not(debug_mode_active) then {
+        mcause[IsInterrupt] = bool_to_bits(intr);
+        if inSmclicMode() then {
+          mcause[ClicExcCode] = zero_extend(c);
+        } else {
+          mcause[Cause]       = zero_extend(c);
+        };
+        mstatus[MPIE] = mstatus[MIE];
+        mstatus[MIE]  = 0b0;
+        mstatus[MPP]  = privLevel_to_bits(cur_privilege());
+        mtval         = tval(info);
+        set_mepc(pc);
+        if inSmclicMode() then {
+          mcause[Xpil] = mil;
+          if intr then {
+            // TODO(CLIC): The reading of clicintctl is wrong (and sil/uil below).
+            mil = clicintctl[unsigned(c)];
+          } else {
+            mcause[Xinhv] = inhv;
+            inhv = 0b0;
+          }
+        };
+        if haveSdtrig() then update_mpte_mte_in_tcontrol();
+      };
 
-       mstatus[MPIE] = mstatus[MIE];
-       mstatus[MIE]  = 0b0;
-       mstatus[MPP]  = privLevel_to_bits(cur_privilege);
-       mtval           = tval(info);
-       mepc            = pc;
+      set_cur_privilege(del_priv);
 
-       cur_privilege   = del_priv;
+      handle_trap_extension(del_priv, pc, ext);
 
-       handle_trap_extension(del_priv, pc, ext);
+      if   get_config_print_reg()
+      then print_reg("CSR mstatus <- " ^ BitStr(mstatus.bits));
 
-       if   get_config_print_reg()
-       then print_reg("CSR mstatus <- " ^ BitStr(mstatus.bits));
+      if inSmclicMode() & intr & (top_ip_attr[SHV] == 0b1) then {
+        clicClearPendingIfEdgeTriggered(c);
+        prepare_shv_clic_trap_vector(del_priv, c)
+      } else {
+        prepare_trap_vector(del_priv, mcause)
+      }
 
-       prepare_trap_vector(del_priv, mcause)
     },
     Supervisor => {
-       assert (extensionEnabled(Ext_S), "no supervisor mode present for delegation");
+      assert (extensionEnabled(Ext_S), "no supervisor mode present for delegation");
 
-       scause[IsInterrupt] = bool_to_bits(intr);
-       scause[Cause]       = zero_extend(c);
+      if not(debug_mode_active) then {
+        scause[IsInterrupt] = bool_to_bits(intr);
+        scause[Cause]       = zero_extend(c);
 
-       mstatus[SPIE] = mstatus[SIE];
-       mstatus[SIE]  = 0b0;
-       mstatus[SPP]  = match cur_privilege {
-                           User => 0b0,
-                           Supervisor => 0b1,
-                           Machine => internal_error(__FILE__, __LINE__, "invalid privilege for s-mode trap")
-                         };
-       stval           = tval(info);
-       sepc            = pc;
+        mstatus[SPIE] = mstatus[SIE];
+        mstatus[SIE]  = 0b0;
+        mstatus[SPP]  = match cur_privilege() {
+                          User => 0b0,
+                          Supervisor => 0b1,
+                          Machine => internal_error(__FILE__, __LINE__, "invalid privilege for s-mode trap")
+                        };
+        stval         = tval(info);
+        set_sepc(pc);
 
-       cur_privilege   = del_priv;
+        if inSmclicMode() then {
+          scause[Xpil] = sil;
+          if intr then {
+            sil = clicintctl[unsigned(c)];
+          } else {
+            scause[Xinhv] = inhv;
+            inhv = 0b0;
+          }
+        };
+      };
 
-       handle_trap_extension(del_priv, pc, ext);
+      set_cur_privilege(del_priv);
 
-       if   get_config_print_reg()
-       then print_reg("CSR mstatus <- " ^ BitStr(mstatus.bits));
+      handle_trap_extension(del_priv, pc, ext);
 
-       prepare_trap_vector(del_priv, scause)
+      if   get_config_print_reg()
+      then print_reg("CSR mstatus <- " ^ BitStr(mstatus.bits));
+
+      if inSmclicMode() & intr & (top_ip_attr[SHV] == 0b1) then {
+        clicClearPendingIfEdgeTriggered(c);
+        prepare_shv_clic_trap_vector(del_priv, c)
+      } else {
+        // TODO (CLIC): Should this should be c too? What happens
+        // to mcause in debug mode? In which case can we move the
+        // `if` into the `prepare_trap_vector` function?
+        prepare_trap_vector(del_priv, scause)
+      }
+
     },
     User => internal_error(__FILE__, __LINE__, "Invalid privilege level"),
   };
@@ -359,66 +457,133 @@ function exception_handler(cur_priv : Privilege, ctl : ctl_result,
       trap_handler(del_priv, false, exceptionType_to_bits(e.trap), pc, e.excinfo, e.ext)
     },
     (_, CTL_MRET())  => {
-      let prev_priv   = cur_privilege;
+      let prev_priv   = cur_privilege();
       mstatus[MIE]  = mstatus[MPIE];
       mstatus[MPIE] = 0b1;
-      cur_privilege   = privLevel_of_bits(mstatus[MPP]);
+      if inSmclicMode() then mil = mcause[Xpil];
+      set_cur_privilege(privLevel_of_bits(mstatus[MPP]));
       mstatus[MPP]  = privLevel_to_bits(if extensionEnabled(Ext_U) then User else Machine);
-      if   cur_privilege != Machine
+      if   cur_privilege() != Machine
       then mstatus[MPRV] = 0b0;
+
+      if haveSdtrig() then restore_mte_in_tcontrol();
 
       if   get_config_print_reg()
       then print_reg("CSR mstatus <- " ^ BitStr(mstatus.bits));
       if   get_config_print_platform()
-      then print_platform("ret-ing from " ^ to_str(prev_priv) ^ " to " ^ to_str(cur_privilege));
+      then print_platform("ret-ing from " ^ to_str(prev_priv) ^ " to " ^ to_str(cur_privilege()));
 
-      prepare_xret_target(Machine) & pc_alignment_mask()
+      prepare_xret_target(Machine)
     },
     (_, CTL_SRET())  => {
-      let prev_priv   = cur_privilege;
+      let prev_priv   = cur_privilege();
       mstatus[SIE]  = mstatus[SPIE];
       mstatus[SPIE] = 0b1;
-      cur_privilege   = if mstatus[SPP] == 0b1 then Supervisor else User;
+      if inSmclicMode() then sil = scause[Xpil];
+      set_cur_privilege(if mstatus[SPP] == 0b1 then Supervisor else User);
       mstatus[SPP]  = 0b0;
-      if   cur_privilege != Machine
+      if   cur_privilege() != Machine
       then mstatus[MPRV] = 0b0;
 
       if   get_config_print_reg()
       then print_reg("CSR mstatus <- " ^ BitStr(mstatus.bits));
       if   get_config_print_platform()
       then print_platform("ret-ing from " ^ to_str(prev_priv)
-                          ^ " to " ^ to_str(cur_privilege));
+                          ^ " to " ^ to_str(cur_privilege()));
 
-      prepare_xret_target(Supervisor) & pc_alignment_mask()
+      prepare_xret_target(Supervisor)
     },
   }
 }
 
+// Non-Maskable Interrupt handler address.
+// val plat_nmi_handler = {ocaml: "Platform.nmi_handler",
+//                         interpreter: "Platform.nmi_handler",
+//                         c: "plat_nmi_handler",
+//                         lem: "plat_nmi_handler"} : unit -> xlenbits
+// TODO
+function plat_nmi_handler() -> xlenbits = zeros()
+
+function nmi_handler() -> xlenbits = {
+  set_mepc(PC);
+
+  // Unknown cause, or the implementation doesn't distinguish causes.
+  mcause[Cause] = zero_extend(nmi_cause);
+  mcause[IsInterrupt] = 0b1;
+
+  if inSmclicMode() then mcause[Xpil] = mil;
+
+  mstatus[MPIE] = mstatus.MIE();
+  mstatus[MIE]  = 0b0;
+  mstatus[MPP]  = privLevel_to_bits(cur_privilege());
+  mtval         = tval(None());
+
+  if haveSdtrig() then update_mpte_mte_in_tcontrol();
+
+  set_cur_privilege(Machine);
+
+  // The address to jump to.
+  let handler_address = plat_nmi_handler();
+
+  handle_nmi_extension(PC, handler_address);
+
+  handler_address
+}
+
 function handle_mem_exception(addr : xlenbits, e : ExceptionType) -> unit = {
+  let addr = convertInvalidAddr(addr);
   let t : sync_exception = struct { trap    = e,
                                     excinfo = Some(addr),
                                     ext     = None() } in
-  set_next_pc(exception_handler(cur_privilege, CTL_TRAP(t), PC))
+  set_next_pc(exception_handler(cur_privilege(), CTL_TRAP(t), PC))
 }
 
 function handle_exception(e: ExceptionType) -> unit = {
   let t : sync_exception = struct { trap    = e,
                                     excinfo = None(),
                                     ext     = None() } in
-  set_next_pc(exception_handler(cur_privilege, CTL_TRAP(t), PC))
+  set_next_pc(exception_handler(cur_privilege(), CTL_TRAP(t), PC))
 }
 
-function handle_interrupt(i : InterruptType, del_priv : Privilege) -> unit =
-  set_next_pc(trap_handler(del_priv, true, interruptType_to_bits(i), PC, None(), None()))
+function handle_interrupt(i : exc_code, del_priv : Privilege) -> unit =
+  set_next_pc(trap_handler(del_priv, true, i, PC, None(), None()))
 
-/* state state initialization */
+function handle_nmi() -> unit = {
+  if not(debugMaskingInterrupts()) then set_next_pc(nmi_handler());
+}
 
-function init_sys() -> unit = {
-  cur_privilege = Machine;
+$ifdef ENABLE_VECTOR
 
-  mhartid     = zeros();
-  mconfigptr  = zeros();
+function init_vector_csrs() -> unit = {
+  /* VLEN value needs to be manually changed currently.
+   * See riscv_vlen.sail for details.
+   */
+  vstart           = zeros();
+  vcsr[vxrm]       = 0b00;
+  vcsr[vxsat]      = 0b0;
+  vl               = zeros();
+  vtype[vill]      = 0b1;
+  vtype[reserved]  = zeros();
+  vtype[vma]       = 0b0;
+  vtype[vta]       = 0b0;
+  vtype[vsew]      = 0b000;
+  vtype[vlmul]     = 0b000;
+}
 
+$else
+
+function init_vector_csrs() -> unit = ()
+
+$endif
+
+// This function is called on reset, so it should perform the reset actions
+// described in the "Reset" section of the privileged architecture specification.
+function reset_sys() -> unit = {
+  set_cur_privilege(Machine);
+
+  debug_mode_active = false;
+
+  // On reset misa is set to enable the maximal set of extensions and widest XLEN.
   misa[MXL] = arch_to_bits(if xlen == 32 then RV32 else RV64);
   misa[A]   = 0b1;                             /* atomics */
   misa[C]   = bool_to_bits(sys_enable_rvc());  /* RVC */
@@ -440,8 +605,6 @@ function init_sys() -> unit = {
 
   mstatus = set_mstatus_SXL(mstatus, misa[MXL]);
   mstatus = set_mstatus_UXL(mstatus, misa[MXL]);
-  mstatus[SD]   = 0b0;
-  mstatus[MPP] = privLevel_to_bits(lowest_supported_privLevel());
 
   /* set to little-endian mode */
   if xlen == 64 then {
@@ -449,37 +612,15 @@ function init_sys() -> unit = {
   };
   mstatush.bits = zeros();
 
-  mip.bits     = zeros();
-  mie.bits     = zeros();
-  mideleg.bits = zeros();
-  medeleg.bits = zeros();
-  mtvec.bits   = zeros();
-  mcause.bits  = zeros();
-  mepc            = zeros();
-  mtval           = zeros();
-  mscratch        = zeros();
+  mstatus[MIE]  = 0b0;
+  mstatus[MPRV] = 0b0;
 
-  mcycle          = zeros();
-  mtime           = zeros();
+  mcause.bits  = zero_extend(0b0);
 
-  mcounteren.bits = zeros();
+  init_vector_csrs();
 
-  minstret           = zeros();
-  minstret_increment = true;
-
-  menvcfg.bits = zeros();
-  senvcfg.bits = zeros();
-  /* initialize vector csrs */
-  vstart             = zeros();
-  vl                 = zeros();
-  vcsr[vxrm]       = 0b00;
-  vcsr[vxsat]      = 0b0;
-  vtype[vill]      = 0b1;
-  vtype[reserved]  = zeros();
-  vtype[vma]       = 0b0;
-  vtype[vta]       = 0b0;
-  vtype[vsew]      = 0b000;
-  vtype[vlmul]     = 0b000;
+  // Reset CLIC CSRs.
+  reset_clic();
 
   // PMP's L and A fields are set to 0 on reset.
   init_pmp();

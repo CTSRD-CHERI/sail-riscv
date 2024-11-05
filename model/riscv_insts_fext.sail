@@ -27,11 +27,10 @@
 
 // TODO: Add config flags to control Zfh and Zfhmin
 enum clause extension = Ext_Zfh
-function clause extensionEnabled(Ext_Zfh) = (misa[F] == 0b1) & (mstatus[FS] != 0b00)
+function clause extensionEnabled(Ext_Zfh) = sys_enable_zfh() & (misa[F] == 0b1) & (mstatus[FS] != 0b00)
 
 enum clause extension = Ext_Zfhmin
-// Zfhmin is a subset of Zfh. This can be changed to extensionEnabled(Ext_Zfh) | sys_enable_zfhmin() when more configuration is implemented.
-function clause extensionEnabled(Ext_Zfhmin) = extensionEnabled(Ext_Zfh)
+function clause extensionEnabled(Ext_Zfhmin) = extensionEnabled(Ext_Zfh) | (sys_enable_zfhmin() & (misa[F] == 0b1) & (mstatus[FS] != 0b00))
 
 mapping encdec_rounding_mode : rounding_mode <-> bits(3) = {
   RM_RNE <-> 0b000,
@@ -290,60 +289,30 @@ mapping clause encdec = LOAD_FP(imm, rs1, rd, DOUBLE)        if extensionEnabled
 
 /* Execution semantics ================================ */
 
-val process_fload64 : (regidx, xlenbits, MemoryOpResult(bits(64)))
-                      -> Retired
-function process_fload64(rd, addr, value) =
-  if   flen == 64
-  then match value {
-         MemValue(result) => { F(rd) = result; RETIRE_SUCCESS },
-         MemException(e)  => { handle_mem_exception(addr, e); RETIRE_FAIL }
-       }
-  else {
-    /* should not get here */
-    RETIRE_FAIL
-  }
-
-val process_fload32 : (regidx, xlenbits, MemoryOpResult(bits(32)))
-                      -> Retired
-function process_fload32(rd, addr, value) =
-  match value {
-    MemValue(result) => { F(rd) = nan_box(result); RETIRE_SUCCESS },
-    MemException(e)  => { handle_mem_exception(addr, e); RETIRE_FAIL }
-  }
-
-val process_fload16 : (regidx, xlenbits, MemoryOpResult(bits(16)))
-                      -> Retired
-function process_fload16(rd, addr, value) =
-  match value {
-    MemValue(result) => { F(rd) = nan_box(result); RETIRE_SUCCESS },
-    MemException(e)  => { handle_mem_exception(addr, e); RETIRE_FAIL }
-  }
-
 function clause execute(LOAD_FP(imm, rs1, rd, width)) = {
+  let width_bytes = size_bytes(width);
+
+  // This is checked during decoding.
+  assert(width_bytes <= flen_bytes);
+
   let offset : xlenbits = sign_extend(imm);
   /* Get the address, X(rs1) + offset.
      Some extensions perform additional checks on address validity. */
-  match ext_data_get_addr(rs1, offset, Read(Data), size_bytes(width)) {
+  let (vaddr, check_result) = ext_data_get_addr(rs1, offset, Read(Data), width_bytes);
+  match check_and_handle_load_vaddr_for_triggers(vaddr, get_arch_pc()) {
+    Some(ret) => return ret,
+    _ => ()
+  };
+  match check_result {
     Ext_DataAddr_Error(e)  => { ext_handle_data_check_error(e); RETIRE_FAIL },
-    Ext_DataAddr_OK(vaddr) =>
+    Ext_DataAddr_OK() => {
       if   check_misaligned(vaddr, width)
       then { handle_mem_exception(vaddr, E_Load_Addr_Align()); RETIRE_FAIL }
-      else match translateAddr(vaddr, Read(Data)) {
-        TR_Failure(e, _) => { handle_mem_exception(vaddr, e); RETIRE_FAIL },
-        TR_Address(addr, _) => {
-          let (aq, rl, res) = (false, false, false);
-          match (width) {
-            BYTE => { handle_illegal(); RETIRE_FAIL },
-            HALF =>
-               process_fload16(rd, vaddr, mem_read(Read(Data), addr, 2, aq, rl, res)),
-            WORD =>
-               process_fload32(rd, vaddr, mem_read(Read(Data), addr, 4, aq, rl, res)),
-            DOUBLE if flen >= 64 =>
-               process_fload64(rd, vaddr, mem_read(Read(Data), addr, 8, aq, rl, res)),
-            _ => report_invalid_width(__FILE__, __LINE__, width, "floating point load"),
-          }
-        }
+      else match vmem_read(Read(Data), vaddr, width_bytes, false, false, false) {
+        Ok(result)    => { F(rd) = nan_box(result); RETIRE_SUCCESS },
+        Err(vaddr, e) => { handle_mem_exception(vaddr, e); RETIRE_FAIL },
       }
+    }
   }
 }
 
@@ -376,49 +345,37 @@ mapping clause encdec = STORE_FP(imm7 @ imm5, rs2, rs1, DOUBLE)                 
 
 /* Execution semantics ================================ */
 
-val process_fstore : (xlenbits, MemoryOpResult(bool)) -> Retired
-function process_fstore(vaddr, value) =
-  match value {
-    MemValue(true)  => { RETIRE_SUCCESS },
-    MemValue(false) => { internal_error(__FILE__, __LINE__, "store got false from mem_write_value") },
-    MemException(e) => { handle_mem_exception(vaddr, e); RETIRE_FAIL }
-  }
-
 function clause execute (STORE_FP(imm, rs2, rs1, width)) = {
+  let width_bytes = size_bytes(width);
+
+  // This is checked during decoding.
+  assert(width_bytes <= flen_bytes);
+
   let offset : xlenbits = sign_extend(imm);
-  let (aq, rl, con) = (false, false, false);
   /* Get the address, X(rs1) + offset.
      Some extensions perform additional checks on address validity. */
-  match ext_data_get_addr(rs1, offset, Write(Data), size_bytes(width)) {
+  let (vaddr, check_result) = ext_data_get_addr(rs1, offset, Write(Data), width_bytes);
+  match check_and_handle_store_vaddr_for_triggers(vaddr, get_arch_pc()) {
+    Some(ret) => return ret,
+    _ => ()
+  };
+  match check_result {
     Ext_DataAddr_Error(e)  => { ext_handle_data_check_error(e); RETIRE_FAIL },
-    Ext_DataAddr_OK(vaddr) =>
+    Ext_DataAddr_OK() => {
       if   check_misaligned(vaddr, width)
       then { handle_mem_exception(vaddr, E_SAMO_Addr_Align()); RETIRE_FAIL }
-      else match translateAddr(vaddr, Write(Data)) {
-        TR_Failure(e, _)    => { handle_mem_exception(vaddr, e); RETIRE_FAIL },
-        TR_Address(addr, _) => {
-          let eares : MemoryOpResult(unit) = match width {
-            BYTE   => MemValue () /* bogus placeholder for illegal size */,
-            HALF   => mem_write_ea(addr, 2, aq, rl, false),
-            WORD   => mem_write_ea(addr, 4, aq, rl, false),
-            DOUBLE => mem_write_ea(addr, 8, aq, rl, false)
-          };
-          match (eares) {
-            MemException(e) => { handle_mem_exception(vaddr, e); RETIRE_FAIL },
-            MemValue(_) => {
-              let rs2_val = F(rs2);
-              match (width) {
-                BYTE => { handle_illegal(); RETIRE_FAIL },
-                HALF => process_fstore (vaddr, mem_write_value(addr, 2, rs2_val[15..0], aq, rl, con)),
-                WORD => process_fstore (vaddr, mem_write_value(addr, 4, rs2_val[31..0], aq, rl, con)),
-                DOUBLE if flen >= 64 =>
-                  process_fstore (vaddr, mem_write_value(addr, 8, rs2_val, aq, rl, con)),
-                _ => report_invalid_width(__FILE__, __LINE__, width, "floating point store"),
-              };
-            }
+      else match vmem_write_translate(vaddr, width_bytes, Write(Data), false, false, false) {
+        Err(vaddr, e) => { handle_mem_exception(vaddr, e); RETIRE_FAIL },
+        Ok(state) => {
+          let rs2_val = F(rs2);
+          match vmem_write_value(state, rs2_val[width_bytes * 8 - 1 .. 0]) {
+            Ok(true)  => { RETIRE_SUCCESS },
+            Ok(false) => { internal_error(__FILE__, __LINE__, "store got false from mem_write_value") },
+            Err(vaddr, e) => { handle_mem_exception(vaddr, e); RETIRE_FAIL }
           }
         }
       }
+    }
   }
 }
 
@@ -892,7 +849,7 @@ function clause execute (F_BIN_TYPE_S(rs2, rs1, rd, FMIN_S)) = {
   let is_quiet  = true;
   let (rs1_lt_rs2, fflags) = fle_S (rs1_val_S, rs2_val_S, is_quiet);
 
-  let rd_val_S  = if      (f_is_NaN_S(rs1_val_S) & f_is_NaN_S(rs2_val_S))           then canonical_NaN_S()
+  let rd_val_S  = if      (f_is_NaN_S(rs1_val_S) & f_is_NaN_S(rs2_val_S))           then canonical_NaN(32)
                   else if f_is_NaN_S(rs1_val_S)                                     then rs2_val_S
                   else if f_is_NaN_S(rs2_val_S)                                     then rs1_val_S
                   else if (f_is_neg_zero_S(rs1_val_S) & f_is_pos_zero_S(rs2_val_S)) then rs1_val_S
@@ -912,7 +869,7 @@ function clause execute (F_BIN_TYPE_S(rs2, rs1, rd, FMAX_S)) = {
   let is_quiet  = true;
   let (rs2_lt_rs1, fflags) = fle_S (rs2_val_S, rs1_val_S, is_quiet);
 
-  let rd_val_S  = if      (f_is_NaN_S(rs1_val_S) & f_is_NaN_S(rs2_val_S))           then canonical_NaN_S()
+  let rd_val_S  = if      (f_is_NaN_S(rs1_val_S) & f_is_NaN_S(rs2_val_S))           then canonical_NaN(32)
                   else if f_is_NaN_S(rs1_val_S)                                     then rs2_val_S
                   else if f_is_NaN_S(rs2_val_S)                                     then rs1_val_S
                   else if (f_is_neg_zero_S(rs1_val_S) & f_is_pos_zero_S(rs2_val_S)) then rs2_val_S
@@ -1061,16 +1018,16 @@ function clause execute (F_UN_TYPE_S(rs1, rd, FCLASS_S)) = {
 }
 
 function clause execute (F_UN_TYPE_S(rs1, rd, FMV_X_W)) = {
-  let rs1_val_S            = F(rs1)[31..0];
-  let rd_val_X  : xlenbits = sign_extend(rs1_val_S);
-  X(rd) = rd_val_X;
+  // A narrower n-bit transfer out of the floating-point registers will
+  // transfer the lower n bits of the register ignoring the upper FLEN-n bits.
+  X(rd) = sign_extend(F(rs1)[31 .. 0]);
   RETIRE_SUCCESS
 }
 
 function clause execute (F_UN_TYPE_S(rs1, rd, FMV_W_X)) = {
-  let rs1_val_X            = X(rs1);
-  let rd_val_S             = rs1_val_X [31..0];
-  F(rd) = nan_box (rd_val_S);
+  // A narrower n-bit transfer, n<FLEN, into the f registers will create a valid
+  // NaN-boxed value.
+  F(rd) = nan_box(X(rs1)[31..0]);
   RETIRE_SUCCESS
 }
 

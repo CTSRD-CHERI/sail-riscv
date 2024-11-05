@@ -16,7 +16,8 @@
 
 union Ext_FetchAddr_Check ('a : Type) = {
   Ext_FetchAddr_OK  : xlenbits,  /* PC value to use for the actual fetch */
-  Ext_FetchAddr_Error : 'a
+  Ext_FetchAddr_Error : ExceptionType,
+  Ext_FetchAddr_Ext_Error : 'a
 }
 
 union Ext_ControlAddr_Check ('a : Type) = {
@@ -25,7 +26,7 @@ union Ext_ControlAddr_Check ('a : Type) = {
 }
 
 union Ext_DataAddr_Check ('a : Type) = {
-  Ext_DataAddr_OK : xlenbits,    /* Address to use for the data access */
+  Ext_DataAddr_OK : unit,
   Ext_DataAddr_Error : 'a
 }
 

@@ -6,4 +6,5 @@
 /*  SPDX-License-Identifier: BSD-2-Clause                                                */
 /*=======================================================================================*/
 
-type exc_code = bits(8)
+// CLIC allows 4096 interrupts.
+type exc_code = bits(12)

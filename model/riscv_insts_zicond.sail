@@ -7,7 +7,7 @@
 /*=======================================================================================*/
 
 enum clause extension = Ext_Zicond
-function clause extensionEnabled(Ext_Zicond) = true
+function clause extensionEnabled(Ext_Zicond) = false
 
 union clause ast = ZICOND_RTYPE : (regidx, regidx, regidx, zicondop)
 

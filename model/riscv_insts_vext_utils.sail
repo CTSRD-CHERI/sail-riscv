@@ -16,14 +16,23 @@ mapping maybe_vmask : string <-> bits(1) = {
   sep() ^ "v0.t"  <-> 0b0
 }
 
+/* Check for valid EEW values in:
+ *  1. vector widening/narrowing instructions
+ *  2. vector load/store instructions
+ */
+val valid_eew : (int) -> bool
+function valid_eew(EEW) = {
+  let ELEN = 2 ^ (get_elen_pow());
+  EEW >= 8 & EEW <= ELEN
+}
+
 /* Check for valid EEW and EMUL values in:
  *  1. vector widening/narrowing instructions
  *  2. vector load/store instructions
  */
 val valid_eew_emul : (int, int) -> bool
 function valid_eew_emul(EEW, EMUL_pow) = {
-  let ELEN = 2 ^ get_elen_pow();
-  EEW >= 8 & EEW <= ELEN & EMUL_pow >= -3 & EMUL_pow <= 3
+  valid_eew(EEW) & EMUL_pow >= -3 & EMUL_pow <= 3
 }
 
 /* Check for valid vtype setting
@@ -39,6 +48,12 @@ function valid_vtype() = {
 val assert_vstart : int -> bool
 function assert_vstart(i) = {
   unsigned(vstart) == i
+}
+
+/* Write vstart with arbitrary value  */
+val write_vstart : int -> unit
+function write_vstart(start) = {
+  vstart = to_bits(16, start);
 }
 
 /* Check for valid destination register when vector masking is enabled:
@@ -72,13 +87,25 @@ function valid_reg_overlap(rs, rd, EMUL_pow_rs, EMUL_pow_rd) = {
   } else true;
 }
 
+/* Check for valid register overlap in vector instructions that produce a mask.
+ *  In these cases, the EEW of the destination is 1 and the overlap checks
+ *  should behave as if the instruction was narrowing.
+ */
+val valid_vmreg_overlap : (regidx, regidx, int) -> bool
+function valid_vmreg_overlap(rs, rd, EMUL_pow_rs) = {
+  let rs_group = if EMUL_pow_rs > 0 then 2 ^ (EMUL_pow_rs) else 1;
+  let rs_int = unsigned(rs);
+  let rd_int = unsigned(rd);
+  (rd_int <= rs_int) | (rd_int >= rs_int + rs_group)
+}
+
 /* Check for valid register grouping in vector segment load/store instructions:
  *  The EMUL of load vd or store vs3 times the number of fields per segment
  *  must not be larger than 8. (EMUL * NFIELDS <= 8)
  */
 val valid_segment : (int, int) -> bool
 function valid_segment(nf, EMUL_pow) = {
-  if EMUL_pow < 0 then nf / (2 ^ (0 - EMUL_pow)) <= 8
+  if EMUL_pow < 0 then nf / 2 ^ (0 - EMUL_pow) <= 8
   else nf * 2 ^ (EMUL_pow) <= 8
 }
 
@@ -128,9 +155,9 @@ function illegal_reduction() = {
 }
 
 /* f. Variable width check for widening reduction instructions */
-val illegal_reduction_widen : (int, int) -> bool
-function illegal_reduction_widen(SEW_widen, LMUL_pow_widen) = {
-  not(valid_vtype()) | not(assert_vstart(0)) | not(valid_eew_emul(SEW_widen, LMUL_pow_widen))
+val illegal_reduction_widen : (int) -> bool
+function illegal_reduction_widen(SEW_widen) = {
+  not(valid_vtype()) | not(assert_vstart(0)) | not(valid_eew(SEW_widen))
 }
 
 /* g. Non-indexed load instruction check */
@@ -160,6 +187,11 @@ function illegal_indexed_store(nf, EEW_index, EMUL_pow_index, EMUL_pow_data) = {
   not(valid_segment(nf, EMUL_pow_data))
 }
 
+function misaligned_vreg(vreg: regidx, EMUL_pow: int) -> bool = {
+  if (EMUL_pow <= 0) then false
+  else (unsigned(vreg) % 2 ^ (EMUL_pow)) != 0
+}
+
 /* Scalar register shaping */
 val get_scalar : forall 'm, 'm >= 8. (regidx, int('m)) -> bits('m)
 function get_scalar(rs1, SEW) = {
@@ -175,16 +207,19 @@ function get_scalar(rs1, SEW) = {
 /* Get the starting element index from csr vtype */
 val get_start_element : unit -> nat
 function get_start_element() = {
-  let start_element = unsigned(vstart);
-  let VLEN_pow = get_vlen_pow();
-  let SEW_pow = get_sew_pow();
-  /* The use of vstart values greater than the largest element
-    index for the current SEW setting is reserved.
-    It is recommended that implementations trap if vstart is out of bounds.
-    It is not required to trap, as a possible future use of upper vstart bits
-    is to store imprecise trap information. */
-  if start_element > (2 ^ (3 + VLEN_pow - SEW_pow) - 1) then handle_illegal();
-  start_element
+  // There used to be a check for reserved vstart values (vstart >= EVLMAX)
+  // here, which I removed because
+  //
+  // * it didn't check against VLMAX=LMUL*(VLEN/SEW), but against 8*(VLEN/SEW),
+  //   which can be larger. That isn't technically incorrect, since per specs
+  //   trapping is optional, but it sure is weird. Furthermore,
+  // * it assumed EVLMAX=VLMAX, which is not true for whole register ops, like
+  //   vs8r.v et al., which therefore incorrectly trapped on valid vstarts.
+  //   Finally,
+  // * it let instructions continue executing, allowing vstart to reset, which
+  //   shouldn't happen when trap is taken.
+
+  unsigned(vstart)
 }
 
 /* Get the ending element index from csr vl */
@@ -209,7 +244,7 @@ function init_masked_result(num_elem, SEW, LMUL_pow, vd_val, vm_val) = {
   var result : vector('n, bits('m)) = undefined;
 
   /* Determine the actual number of elements when lmul < 1 */
-  let real_num_elem = if LMUL_pow >= 0 then num_elem else num_elem / (2 ^ (0 - LMUL_pow));
+  let real_num_elem = if LMUL_pow >= 0 then num_elem else num_elem / 2 ^ (0 - LMUL_pow);
   assert(num_elem >= real_num_elem);
 
   foreach (i from 0 to (num_elem - 1)) {
@@ -259,7 +294,7 @@ function init_masked_source(num_elem, LMUL_pow, vm_val) = {
   var mask : vector('n, bool) = undefined;
 
   /* Determine the actual number of elements when lmul < 1 */
-  let real_num_elem = if LMUL_pow >= 0 then num_elem else num_elem / (2 ^ (0 - LMUL_pow));
+  let real_num_elem = if LMUL_pow >= 0 then num_elem else num_elem / 2 ^ (0 - LMUL_pow);
   assert(num_elem >= real_num_elem);
 
   foreach (i from 0 to (num_elem - 1)) {
@@ -294,7 +329,7 @@ function init_masked_result_carry(num_elem, SEW, LMUL_pow, vd_val) = {
   var result : vector('n, bool) = undefined;
 
   /* Determine the actual number of elements when lmul < 1 */
-  let real_num_elem = if LMUL_pow >= 0 then num_elem else num_elem / (2 ^ (0 - LMUL_pow));
+  let real_num_elem = if LMUL_pow >= 0 then num_elem else num_elem / 2 ^ (0 - LMUL_pow);
   assert(num_elem >= real_num_elem);
 
   foreach (i from 0 to (num_elem - 1)) {
@@ -331,7 +366,7 @@ function init_masked_result_cmp(num_elem, SEW, LMUL_pow, vd_val, vm_val) = {
   var result : vector('n, bool) = undefined;
 
   /* Determine the actual number of elements when lmul < 1 */
-  let real_num_elem = if LMUL_pow >= 0 then num_elem else num_elem / (2 ^ (0 - LMUL_pow));
+  let real_num_elem = if LMUL_pow >= 0 then num_elem else num_elem / 2 ^ (0 - LMUL_pow);
   assert(num_elem >= real_num_elem);
 
   foreach (i from 0 to (num_elem - 1)) {

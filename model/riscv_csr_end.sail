@@ -17,7 +17,7 @@ function csr_name(csr) = csr_name_map(csr)
 function clause is_CSR_defined(_) = false
 end is_CSR_defined
 
-function clause read_CSR(csr) = {
+function clause read_CSR(csr, _) = {
    // This should be impossible because is_CSR_defined() should have returned false.
    internal_error(__FILE__, __LINE__, "Read from CSR that does not exist: " ^ bits_str(csr));
 }

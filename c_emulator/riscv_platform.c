@@ -67,6 +67,117 @@ bool sys_enable_zicboz(unit u)
   return rv_enable_zicboz;
 }
 
+bool sys_enable_pbmt(unit u)
+{
+  return rv_enable_pbmt;
+}
+
+bool sys_enable_sdext(unit u)
+{
+  return rv_enable_sdext;
+}
+
+bool sys_enable_sdtrig(unit u)
+{
+  return rv_enable_sdtrig;
+}
+
+bool sys_enable_smclic(unit u)
+{
+  return rv_enable_smclic;
+}
+
+bool sys_enable_smclicconfig(unit u)
+{
+  return rv_enable_smclicconfig;
+}
+
+bool sys_enable_smclicshv(unit u)
+{
+  return rv_enable_smclicshv;
+}
+
+bool sys_enable_ssclic(unit u)
+{
+  return rv_enable_ssclic;
+}
+
+bool sys_enable_sstc(unit u)
+{
+  return rv_enable_sstc;
+}
+
+bool sys_enable_sv32(unit u)
+{
+  return rv_enable_sv32;
+}
+
+bool sys_enable_sv39(unit u)
+{
+  return rv_enable_sv39;
+}
+
+bool sys_enable_sv48(unit u)
+{
+  return rv_enable_sv48;
+}
+
+bool sys_enable_sv57(unit u)
+{
+  return rv_enable_sv57;
+}
+
+bool sys_enable_svnapot(unit u)
+{
+  return rv_enable_svnapot;
+}
+
+bool sys_enable_zba(unit u)
+{
+  return rv_enable_zba;
+}
+
+bool sys_enable_zbb(unit u)
+{
+  return rv_enable_zbb;
+}
+
+bool sys_enable_zbc(unit u)
+{
+  return rv_enable_zbc;
+}
+
+bool sys_enable_zbs(unit u)
+{
+  return rv_enable_zbs;
+}
+
+bool sys_enable_zfh(unit u)
+{
+  return rv_enable_zfh;
+}
+
+bool sys_enable_zfhmin(unit u)
+{
+  return rv_enable_zfhmin;
+}
+
+bool sys_enable_zkn(unit u)
+{
+  return rv_enable_zkn;
+}
+
+bool sys_enable_zkr(unit u)
+{
+  return rv_enable_zkr;
+}
+
+bool sys_enable_zks(unit u)
+{
+  return rv_enable_zks;
+}
+
+
 uint64_t sys_pmp_count(unit u)
 {
   return rv_pmp_count;

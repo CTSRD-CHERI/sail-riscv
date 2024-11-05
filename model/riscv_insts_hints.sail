@@ -30,7 +30,8 @@ mapping clause encdec_compressed = C_ADDI_HINT(rsd)
   <-> 0b000 @ 0b0 @ rsd : regidx @ 0b00000 @ 0b01
       if rsd != zreg
 
-function clause execute (C_ADDI_HINT(rsd)) = RETIRE_SUCCESS
+// function clause execute (C_ADDI_HINT(rsd)) = RETIRE_SUCCESS
+function clause execute (C_ADDI_HINT(rsd)) = execute(C_ADDI(0b000000, rsd))
 
 mapping clause assembly = C_ADDI_HINT(rsd)
       if rsd != zreg
@@ -101,7 +102,8 @@ mapping clause encdec_compressed = C_SLLI_HINT(nzui5 @ nzui40, rsd)
   <-> 0b000 @ nzui5 : bits(1) @ rsd : regidx @ nzui40 : bits(5) @ 0b10
       if (nzui5 @ nzui40 == 0b000000 | rsd == zreg) & (xlen == 64 | nzui5 == 0b0)
 
-function clause execute (C_SLLI_HINT(shamt, rsd)) = RETIRE_SUCCESS
+// function clause execute (C_SLLI_HINT(shamt, rsd)) = RETIRE_SUCCESS
+function clause execute (C_SLLI_HINT(shamt, rsd)) = execute(C_SLLI(shamt, rsd))
 
 mapping clause assembly = C_SLLI_HINT(shamt, rsd)
       if shamt == 0b000000 | rsd == zreg
@@ -114,7 +116,8 @@ union clause ast = C_SRLI_HINT : (cregidx)
 mapping clause encdec_compressed = C_SRLI_HINT(rsd)
   <-> 0b100 @ 0b0 @ 0b00 @ rsd : cregidx @ 0b00000 @ 0b01
 
-function clause execute (C_SRLI_HINT(rsd)) = RETIRE_SUCCESS
+// function clause execute (C_SRLI_HINT(rsd)) = RETIRE_SUCCESS
+function clause execute (C_SRLI_HINT(rsd)) = execute(C_SRLI(0b000000, rsd))
 
 mapping clause assembly = C_SRLI_HINT(rsd)
   <-> "c.srli.hint." ^ creg_name(rsd)
@@ -125,7 +128,8 @@ union clause ast = C_SRAI_HINT : (cregidx)
 mapping clause encdec_compressed = C_SRAI_HINT(rsd)
   <-> 0b100 @ 0b0 @ 0b01 @ rsd : cregidx @ 0b00000 @ 0b01
 
-function clause execute (C_SRAI_HINT(rsd)) = RETIRE_SUCCESS
+// function clause execute (C_SRAI_HINT(rsd)) = RETIRE_SUCCESS
+function clause execute (C_SRAI_HINT(rsd)) = execute(C_SRAI(0b000000, rsd))
 
 mapping clause assembly = C_SRAI_HINT(rsd)
   <-> "c.srai.hint." ^ creg_name(rsd)

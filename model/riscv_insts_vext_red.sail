@@ -26,13 +26,14 @@ function clause execute(RIVVTYPE(funct6, vm, vs2, vs1, vd)) = {
   let SEW      = get_sew();
   let LMUL_pow = get_lmul_pow();
   let SEW_widen      = SEW * 2;
-  let LMUL_pow_widen = LMUL_pow + 1;
   let num_elem_vs = get_num_elem(LMUL_pow, SEW);
   let num_elem_vd = get_num_elem(0, SEW_widen); /* vd regardless of LMUL setting */
 
-  if illegal_reduction_widen(SEW_widen, LMUL_pow_widen) then { handle_illegal(); return RETIRE_FAIL };
+  if  illegal_reduction_widen(SEW_widen) |
+      misaligned_vreg(vs2, LMUL_pow)
+  then { handle_illegal(); return RETIRE_FAIL };
 
-  if unsigned(vl) == 0 then return RETIRE_SUCCESS; /* if vl=0, no operation is performed */
+  if unsigned(vl) == 0 then { write_vstart(0); return RETIRE_SUCCESS }; /* if vl=0, no operation is performed */
 
   let 'n = num_elem_vs;
   let 'd = num_elem_vd;
@@ -58,7 +59,7 @@ function clause execute(RIVVTYPE(funct6, vm, vs2, vs1, vd)) = {
   write_single_element(SEW_widen, 0, vd, sum);
   /* other elements in vd are treated as tail elements, currently remain unchanged */
   /* TODO: configuration support for agnostic behavior */
-  vstart = zeros();
+  write_vstart(0);
   RETIRE_SUCCESS
 }
 
@@ -93,9 +94,11 @@ function clause execute(RMVVTYPE(funct6, vm, vs2, vs1, vd)) = {
   let num_elem_vs = get_num_elem(LMUL_pow, SEW);
   let num_elem_vd = get_num_elem(0, SEW); /* vd regardless of LMUL setting */
 
-  if illegal_reduction() then { handle_illegal(); return RETIRE_FAIL };
+  if  illegal_reduction() |
+      misaligned_vreg(vs2, LMUL_pow)
+  then { handle_illegal(); return RETIRE_FAIL };
 
-  if unsigned(vl) == 0 then return RETIRE_SUCCESS; /* if vl=0, no operation is performed */
+  if unsigned(vl) == 0 then { write_vstart(0); return RETIRE_SUCCESS }; /* if vl=0, no operation is performed */
 
   let 'n = num_elem_vs;
   let 'd = num_elem_vd;
@@ -125,7 +128,7 @@ function clause execute(RMVVTYPE(funct6, vm, vs2, vs1, vd)) = {
   write_single_element(SEW, 0, vd, sum);
   /* other elements in vd are treated as tail elements, currently remain unchanged */
   /* TODO: configuration support for agnostic behavior */
-  vstart = zeros();
+  write_vstart(0);
   RETIRE_SUCCESS
 }
 

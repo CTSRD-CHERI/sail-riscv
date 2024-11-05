@@ -61,7 +61,7 @@ function clause execute(MMTYPE(funct6, vs2, vs1, vd)) = {
   };
 
   write_vmask(num_elem, vd, result);
-  vstart = zeros();
+  write_vstart(0);
   RETIRE_SUCCESS
 }
 
@@ -106,7 +106,7 @@ function clause execute(VCPOP_M(vm, vs2, rd)) = {
   };
 
   X(rd) = to_bits(xlen, count);
-  vstart = zeros();
+  write_vstart(0);
   RETIRE_SUCCESS
 }
 
@@ -142,7 +142,7 @@ function clause execute(VFIRST_M(vm, vs2, rd)) = {
   };
 
   X(rd) = to_bits(xlen, index);
-  vstart = zeros();
+  write_vstart(0);
   RETIRE_SUCCESS
 }
 
@@ -182,7 +182,7 @@ function clause execute(VMSBF_M(vm, vs2, vd)) = {
   };
 
   write_vmask(num_elem, vd, result);
-  vstart = zeros();
+  write_vstart(0);
   RETIRE_SUCCESS
 }
 
@@ -222,7 +222,7 @@ function clause execute(VMSIF_M(vm, vs2, vd)) = {
   };
 
   write_vmask(num_elem, vd, result);
-  vstart = zeros();
+  write_vstart(0);
   RETIRE_SUCCESS
 }
 
@@ -266,7 +266,7 @@ function clause execute(VMSOF_M(vm, vs2, vd)) = {
   };
 
   write_vmask(num_elem, vd, result);
-  vstart = zeros();
+  write_vstart(0);
   RETIRE_SUCCESS
 }
 
@@ -284,7 +284,8 @@ function clause execute(VIOTA_M(vm, vs2, vd)) = {
   let LMUL_pow = get_lmul_pow();
   let num_elem = get_num_elem(LMUL_pow, SEW);
 
-  if illegal_normal(vd, vm) | not(assert_vstart(0)) | vd == vs2
+  if  illegal_normal(vd, vm) | not(assert_vstart(0)) | vd == vs2 |
+      misaligned_vreg(vd, LMUL_pow)
   then { handle_illegal(); return RETIRE_FAIL };
 
   let 'n = num_elem;
@@ -306,7 +307,7 @@ function clause execute(VIOTA_M(vm, vs2, vd)) = {
   };
 
   write_vreg(num_elem, SEW, LMUL_pow, vd, result);
-  vstart = zeros();
+  write_vstart(0);
   RETIRE_SUCCESS
 }
 
@@ -324,7 +325,9 @@ function clause execute(VID_V(vm, vd)) = {
   let LMUL_pow = get_lmul_pow();
   let num_elem = get_num_elem(LMUL_pow, SEW);
 
-  if illegal_normal(vd, vm) then { handle_illegal(); return RETIRE_FAIL };
+  if  illegal_normal(vd, vm) |
+      misaligned_vreg(vd, LMUL_pow)
+  then { handle_illegal(); return RETIRE_FAIL };
 
   let 'n = num_elem;
   let 'm = SEW;
@@ -340,7 +343,7 @@ function clause execute(VID_V(vm, vd)) = {
   };
 
   write_vreg(num_elem, SEW, LMUL_pow, vd, result);
-  vstart = zeros();
+  write_vstart(0);
   RETIRE_SUCCESS
 }
 

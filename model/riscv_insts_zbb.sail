@@ -7,10 +7,10 @@
 /*=======================================================================================*/
 
 enum clause extension = Ext_Zbb
-function clause extensionEnabled(Ext_Zbb) = true | extensionEnabled(Ext_B)
+function clause extensionEnabled(Ext_Zbb) = sys_enable_zbb() | extensionEnabled(Ext_B)
 
 enum clause extension = Ext_Zbkb
-function clause extensionEnabled(Ext_Zbkb) = true
+function clause extensionEnabled(Ext_Zbkb) = sys_enable_zkn() | sys_enable_zks()
 
 /* ****************************************************************** */
 union clause ast = RISCV_RORIW : (bits(5), regidx, regidx)

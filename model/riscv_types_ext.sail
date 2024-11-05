@@ -58,7 +58,10 @@ function ext_translate_exception(e : ext_ptw_error) -> ext_exc_type =
 
 /* Default conversion of extension exceptions to bits */
 val ext_exc_type_to_bits : ext_exc_type -> exc_code
-function ext_exc_type_to_bits(e) = 0x18 /* First code for a custom extension */
+function ext_exc_type_to_bits(e) = 0x018 /* First code for a custom extension */
+
+val ext_exc_type_of_bits : exc_code -> ext_exc_type
+function ext_exc_type_of_bits(e) = internal_error(__FILE__, __LINE__, "unknown exception type")
 
 /* Default conversion of extension exceptions to integers */
 val num_of_ext_exc_type : ext_exc_type -> {'n, (0 <= 'n < xlen). int('n)}

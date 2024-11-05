@@ -99,6 +99,9 @@ mapping clause csr_name_map = 0x141  <-> "sepc"
 mapping clause csr_name_map = 0x142  <-> "scause"
 mapping clause csr_name_map = 0x143  <-> "stval"
 mapping clause csr_name_map = 0x144  <-> "sip"
+/* Sstc - supervisor timer register */
+mapping clause csr_name_map = 0x14D  <-> "stimecmp"
+mapping clause csr_name_map = 0x15D  <-> "stimecmph"
 /* supervisor protection and translation */
 mapping clause csr_name_map = 0x180  <-> "satp"
 /* supervisor envcfg */
@@ -302,10 +305,27 @@ mapping clause csr_name_map = 0xB9D  <-> "mhpmcounter29h"
 mapping clause csr_name_map = 0xB9E  <-> "mhpmcounter30h"
 mapping clause csr_name_map = 0xB9F  <-> "mhpmcounter31h"
 /* trigger/debug */
-mapping clause csr_name_map = 0x7a0  <-> "tselect"
-mapping clause csr_name_map = 0x7a1  <-> "tdata1"
-mapping clause csr_name_map = 0x7a2  <-> "tdata2"
-mapping clause csr_name_map = 0x7a3  <-> "tdata3"
+mapping clause csr_name_map = 0x5a8 <-> "scontext"
+mapping clause csr_name_map = 0x6a8 <-> "hcontext"
+mapping clause csr_name_map = 0x7a0 <-> "tselect"
+mapping clause csr_name_map = 0x7a1 <-> "tdata1"
+mapping clause csr_name_map = 0x7a2 <-> "tdata2"
+mapping clause csr_name_map = 0x7a3 <-> "tdata3"
+mapping clause csr_name_map = 0x7a4 <-> "tinfo"
+mapping clause csr_name_map = 0x7a5 <-> "tcontrol"
+mapping clause csr_name_map = 0x7a8 <-> "mcontext"
+mapping clause csr_name_map = 0x7aa <-> "mscontext"
+
+/* security configuration */
+mapping clause csr_name_map = 0x747  <-> "mseccfg"
+mapping clause csr_name_map = 0x757  <-> "mseccfgh"
+
+/* debug csrs */
+mapping clause csr_name_map = 0x7b0  <-> "dcsr"
+mapping clause csr_name_map = 0x7b1  <-> "dpc"
+mapping clause csr_name_map = 0x7b2  <-> "dscratch0"
+mapping clause csr_name_map = 0x7b3  <-> "dscratch1"
+
 /* vector csrs */
 mapping clause csr_name_map = 0x008  <-> "vstart"
 mapping clause csr_name_map = 0x009  <-> "vxsat"
@@ -331,8 +351,9 @@ overload to_str = {csr_name}
 val is_CSR_defined : (csreg) -> bool
 scattered function is_CSR_defined
 
-/* returns the value of the CSR if it is defined */
-val read_CSR : csreg -> xlenbits
+// Returns the value of the CSR. The second parameter is the write value
+// which is needed for some crazy CLIC CSRs.
+val read_CSR : (csreg, xlenbits) -> xlenbits
 scattered function read_CSR
 
 /* returns new value (after legalisation) if the CSR is defined */

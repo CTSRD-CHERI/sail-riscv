@@ -11,59 +11,28 @@
 /* Floating point CSR and accessors                                 */
 /* **************************************************************** */
 
-/* Original version written by Rishiyur S. Nikhil, Sept-Oct 2019    */
+// Canonical NaNs when an invalid boxed value is unboxed.
+val canonical_NaN : forall 'n, 'n in {16, 32, 64} . (implicit('n)) -> bits('n)
+function canonical_NaN(_retbits) =
+  match 'n {
+    //    sign  exponent   significand
+    16 => 0b0 @ ones(5)  @ 0b1 @ zeros(9),
+    32 => 0b0 @ ones(8)  @ 0b1 @ zeros(22),
+    64 => 0b0 @ ones(11) @ 0b1 @ zeros(51),
+  }
 
-/* **************************************************************** */
-/* NaN boxing/unboxing.                                             */
-/* When 16-bit floats (half-precision) are stored in 32/64-bit regs  */
-/* they must be 'NaN boxed'.                                         */
-/* When 16-bit floats (half-precision) are read from 32/64-bit regs  */
-/* they must be 'NaN unboxed'.                                       */
-/* When 32-bit floats (single-precision) are stored in 64-bit regs  */
-/* they must be 'NaN boxed' (upper 32b all ones).                   */
-/* When 32-bit floats (single-precision) are read from 64-bit regs  */
-/* they must be 'NaN unboxed'.                                      */
+// When an n-bit float is stored in a larger m-bit register it is "boxed"
+// by prepending 1s, which make it appear as a qNaN.
+val nan_box : forall 'n 'm, 'n <= 'm . (implicit('m), bits('n)) -> bits('m)
+function nan_box(_retbits, x) = ones('m - 'n) @ x
 
-function canonical_NaN_H() -> bits(16) = 0x_7e00
-function canonical_NaN_S() -> bits(32) = 0x_7fc0_0000
-function canonical_NaN_D() -> bits(64) = 0x_7ff8_0000_0000_0000
-
-val      nan_box_H : bits(16) -> flenbits
-function nan_box_H   val_16b =
-  if (flen == 32)
-  then 0x_FFFF @ val_16b
-  else 0x_FFFF_FFFF_FFFF @ val_16b
-
-val      nan_unbox_H : flenbits -> bits(16)
-function nan_unbox_H   regval =
-  if (flen == 32)
-  then if regval [31..16] == 0x_FFFF
-       then regval [15..0]
-       else canonical_NaN_H()
-  else if regval [63..16] == 0x_FFFF_FFFF_FFFF
-       then regval [15..0]
-       else canonical_NaN_H()
-
-val nan_box_S : bits(32) -> flenbits
-function nan_box_S val_32b = {
-  assert(sys_enable_fdext());
-  if (flen == 32)
-  then val_32b
-  else 0x_FFFF_FFFF @ val_32b
-}
-
-val nan_unbox_S : flenbits -> bits(32)
-function nan_unbox_S regval = {
-  assert(sys_enable_fdext());
-  if (flen == 32)
-  then regval
-  else if regval [63..32] == 0x_FFFF_FFFF
-       then regval [31..0]
-       else canonical_NaN_S()
-}
-
-overload nan_box = { nan_box_H, nan_box_S }
-overload nan_unbox = { nan_unbox_H, nan_unbox_S }
+// When an n-bit float is stored ina smaller m-bit register it is "unboxed"
+// - only if it is a valid boxed NaN. Otherwise a canonical NaN value is stored.
+// Unfortunately this is more complicated than it could be. See https://github.com/rems-project/sail/issues/471
+val nan_unbox : forall 'n 'm, 'm in {16, 32, 64} & 'n >= 'm . (implicit('m), bits('n)) -> bits('m)
+function nan_unbox(_retbits, x) = if 'n == 'm then x else (
+  if x['n - 1 .. 'm] == ones() then x['m - 1 .. 0] else canonical_NaN()
+)
 
 /* **************************************************************** */
 /* Floating point register file                                     */
@@ -104,7 +73,7 @@ register f31 : fregtype
 function dirty_fd_context() -> unit = {
   assert(sys_enable_fdext());
   mstatus[FS] = extStatus_to_bits(Dirty);
-  mstatus[SD] = 0b1
+  mstatus[SD] = 0b1;
 }
 
 function dirty_fd_context_if_present() -> unit = {
@@ -367,42 +336,6 @@ val freg_or_reg_name : regidx <-> string
 mapping freg_or_reg_name = {
   reg if sys_enable_fdext() <-> freg_name(reg) if sys_enable_fdext(),
   reg if sys_enable_zfinx() <-> reg_name(reg)  if sys_enable_zfinx()
-}
-
-val init_fdext_regs : unit -> unit
-function init_fdext_regs () = {
-  f0  = zero_freg;
-  f1  = zero_freg;
-  f2  = zero_freg;
-  f3  = zero_freg;
-  f4  = zero_freg;
-  f5  = zero_freg;
-  f6  = zero_freg;
-  f7  = zero_freg;
-  f8  = zero_freg;
-  f9  = zero_freg;
-  f10 = zero_freg;
-  f11 = zero_freg;
-  f12 = zero_freg;
-  f13 = zero_freg;
-  f14 = zero_freg;
-  f15 = zero_freg;
-  f16 = zero_freg;
-  f17 = zero_freg;
-  f18 = zero_freg;
-  f19 = zero_freg;
-  f20 = zero_freg;
-  f21 = zero_freg;
-  f22 = zero_freg;
-  f23 = zero_freg;
-  f24 = zero_freg;
-  f25 = zero_freg;
-  f26 = zero_freg;
-  f27 = zero_freg;
-  f28 = zero_freg;
-  f29 = zero_freg;
-  f30 = zero_freg;
-  f31 = zero_freg
 }
 
 /* **************************************************************** */

@@ -7,10 +7,10 @@
 /*=======================================================================================*/
 
 enum clause extension = Ext_Zbc
-function clause extensionEnabled(Ext_Zbc) = true
+function clause extensionEnabled(Ext_Zbc) = sys_enable_zbc()
 
 enum clause extension = Ext_Zbkc
-function clause extensionEnabled(Ext_Zbkc) = true
+function clause extensionEnabled(Ext_Zbkc) = sys_enable_zkn() | sys_enable_zks()
 
 /* ****************************************************************** */
 union clause ast = RISCV_CLMUL : (regidx, regidx, regidx)

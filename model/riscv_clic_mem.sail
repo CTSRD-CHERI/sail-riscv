@@ -6,4 +6,12 @@
 /*  SPDX-License-Identifier: BSD-2-Clause                                                */
 /*=======================================================================================*/
 
-function ext_veto_disable_C () = false
+function vector_table_fetch(vaddr : xlenbits) -> VectorTableFetchResult =
+  match translateAddr(vaddr, Read(Data)) {
+    TR_Failure(e) => F_TableError(e, vaddr),
+    TR_Address(paddr, pbmt, _) =>
+      match mem_read(Execute(), pbmt, paddr, xlen_bytes, false, false, false) {
+        MemException(e)       => F_TableError(e, vaddr),
+        MemValue(table_entry) => F_TableEntry(table_entry),
+      },
+  }

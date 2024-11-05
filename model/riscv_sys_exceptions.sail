@@ -16,12 +16,13 @@ function ext_check_xret_priv (p : Privilege) : Privilege -> bool = true
 function ext_fail_xret_priv () : unit -> unit = ()
 
 function handle_trap_extension(p : Privilege, pc : xlenbits, u : option(unit)) -> unit = ()
+function handle_nmi_extension(pc : xlenbits, handler_pc : xlenbits) -> unit = ()
 
 /* used for traps and ECALL */
 function prepare_trap_vector(p : Privilege, cause : Mcause) -> xlenbits = {
   let tvec : Mtvec = match p {
-                       Machine    => mtvec,
-                       Supervisor => stvec,
+                       Machine    => Mk_Mtvec(get_mtvec()),
+                       Supervisor => Mk_Mtvec(get_stvec()),
                        User       => internal_error(__FILE__, __LINE__, "Invalid privilege level"),
                      };
   match tvec_addr(tvec, cause) {
@@ -30,50 +31,9 @@ function prepare_trap_vector(p : Privilege, cause : Mcause) -> xlenbits = {
   }
 }
 
-/* xRET handling involves three functions:
- *
- * get_xret_target:     used to read the value of the xret target  (no control flow transfer)
- * set_xret_target:     used to write a value of the xret target   (no control flow transfer)
- * prepare_xret_target: used to get the value for control transfer to the xret target
- */
+val prepare_clic_xret_vectored_target : (Privilege) -> xlenbits
 
-val get_xret_target : Privilege -> xlenbits
-function get_xret_target(p) =
-  match p {
-    Machine    => mepc,
-    Supervisor => sepc,
-    User       => internal_error(__FILE__, __LINE__, "Invalid privilege level"),
-  }
-
-val set_xret_target : (Privilege, xlenbits) -> xlenbits
-function set_xret_target(p, value) = {
-  let target = legalize_xepc(value);
-  match p {
-    Machine    => mepc = target,
-    Supervisor => sepc = target,
-    User       => internal_error(__FILE__, __LINE__, "Invalid privilege level"),
-  };
-  target
-}
-
-val prepare_xret_target : (Privilege) -> xlenbits
-function prepare_xret_target(p) =
-  get_xret_target(p)
-
-/* other trap-related CSRs */
-
-function get_mtvec() -> xlenbits =
-  mtvec.bits
-
-function get_stvec() -> xlenbits =
-  stvec.bits
-
-function set_mtvec(value : xlenbits) -> xlenbits = {
-  mtvec = legalize_tvec(mtvec, value);
-  mtvec.bits
-}
-
-function set_stvec(value : xlenbits) -> xlenbits = {
-  stvec = legalize_tvec(stvec, value);
-  stvec.bits
-}
+function prepare_xret_target(p : Privilege) -> xlenbits =
+  if inSmclicMode() & get_xcause(p)[Xinhv] == 0b1
+  then prepare_clic_xret_vectored_target(p)
+  else get_xepc(p)

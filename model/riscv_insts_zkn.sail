@@ -11,7 +11,7 @@
  * ----------------------------------------------------------------------
  */
 enum clause extension = Ext_Zknh
-function clause extensionEnabled(Ext_Zknh) = true
+function clause extensionEnabled(Ext_Zknh) = sys_enable_zkn()
 
 union clause ast = SHA256SIG0 : (regidx, regidx)
 union clause ast = SHA256SIG1 : (regidx, regidx)
@@ -76,7 +76,7 @@ function clause execute (SHA256SUM1(rs1, rd)) = {
  */
 
 enum clause extension = Ext_Zkne
-function clause extensionEnabled(Ext_Zkne) = true
+function clause extensionEnabled(Ext_Zkne) = sys_enable_zkn()
 
 union clause ast = AES32ESMI : (bits(2), regidx, regidx, regidx)
 
@@ -119,7 +119,7 @@ function clause execute (AES32ESI (bs, rs2, rs1, rd)) = {
  */
 
 enum clause extension = Ext_Zknd
-function clause extensionEnabled(Ext_Zknd) = true
+function clause extensionEnabled(Ext_Zknd) = sys_enable_zkn()
 
 union clause ast = AES32DSMI : (bits(2), regidx, regidx, regidx)
 

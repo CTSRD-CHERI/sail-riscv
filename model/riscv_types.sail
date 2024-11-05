@@ -28,6 +28,9 @@ let xlen_max_unsigned = 2 ^ xlen - 1
 let xlen_max_signed = 2 ^ (xlen - 1) - 1
 let xlen_min_signed = 0 - 2 ^ (xlen - 1)
 
+type pagesize_bits : Int = 12
+let  pagesize_bits = sizeof(pagesize_bits)
+
 type half = bits(16)
 type word = bits(32)
 
@@ -81,6 +84,8 @@ function arch_to_bits(a : Architecture) -> arch_xlen =
 /* privilege levels */
 
 type priv_level = bits(2)
+// Note the order must be from lowest privilege to highest so num_of_Privilege
+// is in that order (0 = User, 1 = Supervisor, 2 = Machine).
 enum Privilege  = {User, Supervisor, Machine}
 
 val privLevel_to_bits : Privilege -> priv_level
@@ -114,9 +119,41 @@ function privLevel_to_str (p) =
 
 overload to_str = {privLevel_to_str}
 
-/* enum denoting whether an executed instruction retires */
+enum DebugModeTrigAction = {
+  DEBUG_TRIG_RAISE_BREAKPOINT_EXCEPTION,
+  DEBUG_TRIG_ENTER_DEBUG_MODE,
+  DEBUG_TRIG_TRACE_ON,
+  DEBUG_TRIG_TRACE_OFF,
+  DEBUG_TRIG_TRACE_NOTIFY,
+  DEBUG_TRIG_RESERVED_TRACE_SPECIFICATION,
+  DEBUG_TRIG_SEND_SIGNAL_EXTERNAL_TRIGGER_OUTPUT_0,
+  DEBUG_TRIG_SEND_SIGNAL_EXTERNAL_TRIGGER_OUTPUT_1
+}
 
-enum Retired = {RETIRE_SUCCESS, RETIRE_FAIL}
+val debugModeTrigActionBits : DebugModeTrigAction <-> bits(6)
+mapping debugModeTrigActionBits = {
+    DEBUG_TRIG_RAISE_BREAKPOINT_EXCEPTION            <-> 0b000000,
+    DEBUG_TRIG_ENTER_DEBUG_MODE                      <-> 0b000001,
+    DEBUG_TRIG_TRACE_ON                              <-> 0b000010,
+    DEBUG_TRIG_TRACE_OFF                             <-> 0b000011,
+    DEBUG_TRIG_TRACE_NOTIFY                          <-> 0b000100,
+    DEBUG_TRIG_RESERVED_TRACE_SPECIFICATION          <-> 0b000101,
+    DEBUG_TRIG_SEND_SIGNAL_EXTERNAL_TRIGGER_OUTPUT_0 <-> 0b001000,
+    DEBUG_TRIG_SEND_SIGNAL_EXTERNAL_TRIGGER_OUTPUT_1 <-> 0b001001
+}
+
+struct Trigger_Reason = {
+  vaddr : xlenbits,
+  action : DebugModeTrigAction
+}
+
+/* union denoting whether/how an executed instruction retires */
+
+enum Retired = {
+  RETIRE_SUCCESS,
+  RETIRE_FAIL,
+  RETIRE_DEBUG_TRIGGER
+}
 
 /* memory access types */
 
@@ -124,10 +161,12 @@ union AccessType ('a : Type) = {
   Read      : 'a,
   Write     : 'a,
   ReadWrite : ('a, 'a),
-  Execute   : unit
+  Execute   : unit,
+  Cache     : 'a,
+  CacheInval: 'a
 }
 
-enum word_width = {BYTE, HALF, WORD, DOUBLE}
+enum word_width = { BYTE, HALF, WORD, DOUBLE}
 
 /* architectural interrupt definitions */
 
@@ -146,15 +185,15 @@ enum InterruptType = {
 val interruptType_to_bits : InterruptType -> exc_code
 function interruptType_to_bits (i) =
   match (i) {
-    I_U_Software => 0x00,
-    I_S_Software => 0x01,
-    I_M_Software => 0x03,
-    I_U_Timer    => 0x04,
-    I_S_Timer    => 0x05,
-    I_M_Timer    => 0x07,
-    I_U_External => 0x08,
-    I_S_External => 0x09,
-    I_M_External => 0x0b
+    I_U_Software => 0x000,
+    I_S_Software => 0x001,
+    I_M_Software => 0x003,
+    I_U_Timer    => 0x004,
+    I_S_Timer    => 0x005,
+    I_M_Timer    => 0x007,
+    I_U_External => 0x008,
+    I_S_External => 0x009,
+    I_M_External => 0x00b
   }
 
 /* architectural exception definitions */
@@ -184,25 +223,49 @@ union ExceptionType = {
 val exceptionType_to_bits : ExceptionType -> exc_code
 function exceptionType_to_bits(e) =
   match (e) {
-    E_Fetch_Addr_Align()   => 0x00,
-    E_Fetch_Access_Fault() => 0x01,
-    E_Illegal_Instr()      => 0x02,
-    E_Breakpoint()         => 0x03,
-    E_Load_Addr_Align()    => 0x04,
-    E_Load_Access_Fault()  => 0x05,
-    E_SAMO_Addr_Align()    => 0x06,
-    E_SAMO_Access_Fault()  => 0x07,
-    E_U_EnvCall()          => 0x08,
-    E_S_EnvCall()          => 0x09,
-    E_Reserved_10()        => 0x0a,
-    E_M_EnvCall()          => 0x0b,
-    E_Fetch_Page_Fault()   => 0x0c,
-    E_Load_Page_Fault()    => 0x0d,
-    E_Reserved_14()        => 0x0e,
-    E_SAMO_Page_Fault()    => 0x0f,
+    E_Fetch_Addr_Align()   => 0x000,
+    E_Fetch_Access_Fault() => 0x001,
+    E_Illegal_Instr()      => 0x002,
+    E_Breakpoint()         => 0x003,
+    E_Load_Addr_Align()    => 0x004,
+    E_Load_Access_Fault()  => 0x005,
+    E_SAMO_Addr_Align()    => 0x006,
+    E_SAMO_Access_Fault()  => 0x007,
+    E_U_EnvCall()          => 0x008,
+    E_S_EnvCall()          => 0x009,
+    E_Reserved_10()        => 0x00a,
+    E_M_EnvCall()          => 0x00b,
+    E_Fetch_Page_Fault()   => 0x00c,
+    E_Load_Page_Fault()    => 0x00d,
+    E_Reserved_14()        => 0x00e,
+    E_SAMO_Page_Fault()    => 0x00f,
 
     /* extensions */
     E_Extension(e)         => ext_exc_type_to_bits(e)
+  }
+
+val exceptionType_of_bits : exc_code -> ExceptionType
+function exceptionType_of_bits(e) =
+  match (e) {
+    0x000 => E_Fetch_Addr_Align(),
+    0x001 => E_Fetch_Access_Fault(),
+    0x002 => E_Illegal_Instr(),
+    0x003 => E_Breakpoint(),
+    0x004 => E_Load_Addr_Align(),
+    0x005 => E_Load_Access_Fault(),
+    0x006 => E_SAMO_Addr_Align(),
+    0x007 => E_SAMO_Access_Fault(),
+    0x008 => E_U_EnvCall(),
+    0x009 => E_S_EnvCall(),
+    0x00a => E_Reserved_10(),
+    0x00b => E_M_EnvCall(),
+    0x00c => E_Fetch_Page_Fault(),
+    0x00d => E_Load_Page_Fault(),
+    0x00e => E_Reserved_14(),
+    0x00f => E_SAMO_Page_Fault(),
+
+    /* extensions (or failure) */
+    _ => E_Extension(ext_exc_type_of_bits(e))
   }
 
 val num_of_ExceptionType : ExceptionType -> {'n, (0 <= 'n < xlen). int('n)}
@@ -259,15 +322,15 @@ overload to_str = {exceptionType_to_str}
 /* trap modes */
 
 type tv_mode = bits(2)
-enum TrapVectorMode = {TV_Direct, TV_Vector, TV_Reserved}
+enum TrapVectorMode = {TV_Direct, TV_Vector, TV_Smclic, TV_Reserved}
 
-val trapVectorMode_of_bits : tv_mode -> TrapVectorMode
-function trapVectorMode_of_bits (m) =
-  match (m) {
-    0b00 => TV_Direct,
-    0b01 => TV_Vector,
-    _    => TV_Reserved
-  }
+mapping trapVectorMode_bits : tv_mode <-> TrapVectorMode = {
+  0b00 <-> TV_Direct,
+  0b01 <-> TV_Vector,
+  0b10 <-> TV_Reserved,
+  // CLIC also requires xtvec[5:2] to be 0.
+  0b11 <-> TV_Smclic,
+}
 
 /* extension context status */
 
@@ -295,14 +358,15 @@ function extStatus_of_bits(e) =
 /* supervisor-level address translation modes */
 
 type satp_mode = bits(4)
-enum SATPMode = {Sbare, Sv32, Sv39, Sv48}
+enum SATPMode = {Sbare, Sv32, Sv39, Sv48, Sv57}
 
-function satp64Mode_of_bits(a : Architecture, m : satp_mode) -> option(SATPMode) =
+function satpMode_of_bits(a : Architecture, m : satp_mode) -> option(SATPMode) =
   match (a, m) {
     (_,    0x0) => Some(Sbare),
     (RV32, 0x1) => Some(Sv32),
     (RV64, 0x8) => Some(Sv39),
     (RV64, 0x9) => Some(Sv48),
+    (RV64, 0xA) => Some(Sv57),
     (_, _)      => None()
   }
 

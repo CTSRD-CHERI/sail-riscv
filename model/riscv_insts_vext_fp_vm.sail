@@ -31,7 +31,13 @@ function clause execute(FVVMTYPE(funct6, vm, vs2, vs1, vd)) = {
   let LMUL_pow = get_lmul_pow();
   let num_elem = get_num_elem(LMUL_pow, SEW);
 
-  if illegal_fp_vd_unmasked(SEW, rm_3b) then { handle_illegal(); return RETIRE_FAIL };
+  if  illegal_fp_vd_unmasked(SEW, rm_3b) |
+      not(valid_vmreg_overlap(vs2, vd, LMUL_pow)) |
+      not(valid_vmreg_overlap(vs1, vd, LMUL_pow)) |
+      misaligned_vreg(vs2, LMUL_pow) |
+      misaligned_vreg(vs1, LMUL_pow) |
+      (SEW == 16 & not(extensionEnabled(Ext_Zvfh)))
+  then { handle_illegal(); return RETIRE_FAIL };
   assert(SEW != 8);
 
   let 'n = num_elem;
@@ -58,7 +64,7 @@ function clause execute(FVVMTYPE(funct6, vm, vs2, vs1, vd)) = {
   };
 
   write_vmask(num_elem, vd, result);
-  vstart = zeros();
+  write_vstart(0);
   RETIRE_SUCCESS
 }
 
@@ -94,7 +100,11 @@ function clause execute(FVFMTYPE(funct6, vm, vs2, rs1, vd)) = {
   let LMUL_pow = get_lmul_pow();
   let num_elem = get_num_elem(LMUL_pow, SEW);
 
-  if illegal_fp_vd_unmasked(SEW, rm_3b) then { handle_illegal(); return RETIRE_FAIL };
+  if  illegal_fp_vd_unmasked(SEW, rm_3b) |
+      not(valid_vmreg_overlap(vs2, vd, LMUL_pow)) |
+      misaligned_vreg(vs2, LMUL_pow) |
+      (SEW == 16 & not(extensionEnabled(Ext_Zvfh)))
+  then { handle_illegal(); return RETIRE_FAIL };
   assert(SEW != 8);
 
   let 'n = num_elem;
@@ -123,7 +133,7 @@ function clause execute(FVFMTYPE(funct6, vm, vs2, rs1, vd)) = {
   };
 
   write_vmask(num_elem, vd, result);
-  vstart = zeros();
+  write_vstart(0);
   RETIRE_SUCCESS
 }
 
