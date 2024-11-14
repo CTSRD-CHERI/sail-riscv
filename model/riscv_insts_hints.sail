@@ -109,7 +109,7 @@ mapping clause encdec_compressed = C_LI_HINT(imm5 @ imm40)
 
 function clause execute (C_LI_HINT(imm)) =
       if plat_c_hints_expand() then {
-        let imm : bits(12) = EXTS(imm);
+        let imm : bits(12) = sign_extend(imm);
         execute(ITYPE(imm, zreg, zreg, RISCV_ADDI))
       } else RETIRE_SUCCESS
 
@@ -126,7 +126,7 @@ mapping clause encdec_compressed = C_LUI_HINT(imm17 @ imm1612)
 
 function clause execute (C_LUI_HINT(imm)) =
       if plat_c_hints_expand() then {
-        let res : bits(20) = EXTS(imm);
+        let res : bits(20) = sign_extend(imm);
         execute(UTYPE(res, zreg, RISCV_LUI));
       } else RETIRE_SUCCESS
 
