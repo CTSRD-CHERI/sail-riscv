@@ -95,7 +95,8 @@ function ext_reset() = {
   /* these are here so that the C backend doesn't prune them out. */
   // let _ = rvfi_step(0);
   ext_rvfi_reset();
+  ext_cheri_reset();
   ()
 }
 
-function ext_reset_misa() -> unit = ()
+function ext_reset_misa() -> unit = ext_cheri_reset_misa()
