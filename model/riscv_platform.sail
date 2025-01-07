@@ -641,28 +641,28 @@ function htif_tick() = {
 
 /* Top-level MMIO dispatch */
 // TODO: Add HTIF back.
-// $ifndef RVFI_DII
-// function within_mmio_readable forall 'n, 0 < 'n <= max_mem_access . (addr : xlenbits, width : int('n)) -> bool =
-//   within_clint(addr, width) | (within_htif_readable(addr, width) & 1 <= 'n)
-// $else
-// function within_mmio_readable forall 'n, 0 < 'n <= max_mem_access . (addr : xlenbits, width : int('n)) -> bool = false
-// $endif
+$ifndef RVFI_DII
+function within_mmio_readable forall 'n, 0 < 'n <= max_mem_access . (addr : xlenbits, width : int('n)) -> bool =
+  within_clint(addr, width) | (within_htif_readable(addr, width) & 1 <= 'n)
+$else
+function within_mmio_readable forall 'n, 0 < 'n <= max_mem_access . (addr : xlenbits, width : int('n)) -> bool = false
+$endif
 
-// $ifndef RVFI_DII
-// function within_mmio_writable forall 'n, 0 < 'n <= max_mem_access . (addr : xlenbits, width : int('n)) -> bool =
-//   within_clint(addr, width) | (within_htif_writable(addr, width) & 'n <= 8)
-// $else
-// function within_mmio_writable forall 'n, 0 < 'n <= max_mem_access . (addr : xlenbits, width : int('n)) -> bool = false
-// $endif
+$ifndef RVFI_DII
+function within_mmio_writable forall 'n, 0 < 'n <= max_mem_access . (addr : xlenbits, width : int('n)) -> bool =
+  within_clint(addr, width) | (within_htif_writable(addr, width) & 'n <= 8)
+$else
+function within_mmio_writable forall 'n, 0 < 'n <= max_mem_access . (addr : xlenbits, width : int('n)) -> bool = false
+$endif
 
 /* Top-level MMIO dispatch */
-function within_mmio_readable forall 'n, 0 < 'n <= max_mem_access . (addr : xlenbits, width : int('n)) -> bool = {
-  within_clint(addr, width) | (within_clic(addr, width) & extensionEnabled(Ext_Smclic) & not(plat_clic_disable_mmio()))
-}
-
-function within_mmio_writable forall 'n, 0 < 'n <= max_mem_access . (addr : xlenbits, width : int('n)) -> bool = {
-  within_clint(addr, width) | (within_clic(addr, width) & extensionEnabled(Ext_Smclic) & not(plat_clic_disable_mmio()))
-}
+//function within_mmio_readable forall 'n, 0 < 'n <= max_mem_access . (addr : xlenbits, width : int('n)) -> bool = {
+//  within_clint(addr, width) | (within_clic(addr, width) & extensionEnabled(Ext_Smclic) & not(plat_clic_disable_mmio()))
+//}
+//
+//function within_mmio_writable forall 'n, 0 < 'n <= max_mem_access . (addr : xlenbits, width : int('n)) -> bool = {
+//  within_clint(addr, width) | (within_clic(addr, width) & extensionEnabled(Ext_Smclic) & not(plat_clic_disable_mmio()))
+//}
 
 function mmio_read forall 'n, 0 < 'n <= max_mem_access . (t : AccessType(ext_access_type), paddr : xlenbits, width : int('n)) -> MemoryOpResult(bits(8 * 'n)) =
   if   within_clint(paddr, width)
@@ -721,3 +721,14 @@ function platform_wfi() -> unit = {
     mcycle = mtimecmp;
   }
 }
+
+/* Function to dynamically check if RVFI_DII is enabled */
+
+$ifdef RVFI_DII
+function platform_get_rvfi_dii() -> bool = true
+$else
+function platform_get_rvfi_dii() -> bool = false
+$endif
+
+function out_of_rvfi_dii_range forall 'n, 0 < 'n <= max_mem_access . (paddr : xlenbits, width : int('n)) -> bool =
+  unsigned(paddr) < unsigned(0x80000000) | unsigned(paddr + width) > unsigned(0x80800000)
