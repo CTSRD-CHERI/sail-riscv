@@ -321,13 +321,21 @@ val plat_term_write = impure {c: "plat_term_write", lem: "plat_term_write"} : bi
 val plat_term_read  = impure {c: "plat_term_read", lem: "plat_term_read"}  : unit -> bits(8)
 
 /* Top-level MMIO dispatch */
+$ifndef RVFI_DII
 function within_mmio_readable forall 'n, 0 < 'n <= max_mem_access . (addr : physaddr, width : int('n)) -> bool = {
   within_clint(addr, width)
 }
+$else
+function within_mmio_readable forall 'n, 0 < 'n <= max_mem_access . (addr : physaddr, width : int('n)) -> bool = false
+$endif
 
+$ifndef RVFI_DII
 function within_mmio_writable forall 'n, 0 < 'n <= max_mem_access . (addr : physaddr, width : int('n)) -> bool = {
   within_clint(addr, width)
 }
+$else
+function within_mmio_writable forall 'n, 0 < 'n <= max_mem_access . (addr : physaddr, width : int('n)) -> bool = false
+$endif
 
 function mmio_read forall 'n, 0 < 'n <= max_mem_access . (t : AccessType(ext_access_type), paddr : physaddr, width : int('n)) -> MemoryOpResult(bits(8 * 'n)) =
   if   within_clint(paddr, width)
@@ -365,3 +373,14 @@ function handle_illegal() -> unit = {
 
 /* Platform-specific wait-for-interrupt */
 function platform_wfi() -> unit = ()
+
+/* Function to dynamically check if RVFI_DII is enabled */
+
+$ifdef RVFI_DII
+function platform_get_rvfi_dii() -> bool = true
+$else
+function platform_get_rvfi_dii() -> bool = false
+$endif
+
+function out_of_rvfi_dii_range forall 'n, 0 < 'n <= max_mem_access . (paddr : xlenbits, width : int('n)) -> bool =
+  unsigned(paddr) < unsigned(0x80000000) | unsigned(paddr + width) > unsigned(0x80800000)
