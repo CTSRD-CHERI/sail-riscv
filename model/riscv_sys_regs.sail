@@ -149,7 +149,7 @@ function sys_hpmevent_writable_bits() -> bits(64) = ones()
 function sys_medeleg_writable_bits() -> bits(64) = ones()
 function sys_mideleg_writable_bits() -> bits(64) = ones()
 function sys_xtvec_writable_bits() -> bits(64) = ones()
-function sys_xcause_bits() -> range(0, 64) = 64
+function sys_xcause_bits() -> range(0, 63) = 63
 
 // Number of CLIC interrupts supported
 // val sys_clic_num_interrupts = pure "sys_clic_num_interrupts" : unit -> range(32,4096)
