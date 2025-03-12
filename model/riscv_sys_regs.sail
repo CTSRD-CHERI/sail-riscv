@@ -1013,7 +1013,7 @@ function legalize_satp64(a : Architecture, o : bits(64), v : bits(64)) -> bits(6
     PPN = zero_extend(s[PPN][sys_pa_bits() - pagesize_bits - 1 .. 0]),
   ];
 
-  s.bits
+  if supported then s.bits else o
 }
 
 bitfield Satp32 : bits(32) = {
