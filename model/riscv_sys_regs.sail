@@ -594,7 +594,7 @@ function legalize_cause(v : xlenbits) -> Mcause = {
 
   let m = Mk_Mcause(v);
   [m with Cause = if cause_bits == 0 then zeros()
-                  else zero_extend(m[Cause][cause_bits - 1 .. 0])]
+                  else zero_extend(m[Cause][5 - 1 .. 0])]
 }
 
 
