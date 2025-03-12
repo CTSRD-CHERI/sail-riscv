@@ -542,9 +542,9 @@ function legalize_tvec(o : Mtvec, v : xlenbits) -> Mtvec = {
     TV_Vector => v,
     TV_Smclic if extensionEnabled(Ext_Smclic) & v[Submode] == zeros() => v,
     // Reserved behaviour is implementation specific.
-    _ => if extensionEnabled(Ext_Smclic)
+    inv_mode => if extensionEnabled(Ext_Smclic)
          then [v with Mode = o[Mode], Submode = o[Submode]]
-         else [v with Mode = o[Mode]],
+         else [v with Mode = trapVectorMode_bits(inv_mode) & 0b01],
   }
 }
 
