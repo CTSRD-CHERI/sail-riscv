@@ -74,7 +74,7 @@ function phys_mem_read forall 'n, 0 < 'n <= max_mem_access . (t : AccessType(ext
     Some(rk) => Some(read_ram(rk, paddr, width, meta)),
     None()   => None()
   }) : option((bits(8 * 'n), mem_meta));
-  let result : option((bits(8 * 'n), mem_meta)) = if platform_get_rvfi_dii() & out_of_rvfi_dii_range(paddr, width) then None() else result;
+  let result : option((bits(8 * 'n), mem_meta)) = if platform_get_rvfi_dii() & out_of_rvfi_dii_range(physaddr_bits(paddr), width) then None() else result;
   match (t, result) {
     (Execute(),  None()) => Err(E_Fetch_Access_Fault()),
     (Read(Data), None()) => Err(E_Load_Access_Fault()),
@@ -199,11 +199,11 @@ function rvfi_read (addr, width, result) = {
   rvfi_mem_data_present = true;
   match result {
     /* TODO: report tag bit for capability writes and extend mask by one bit. */
-    MemValue(v, _) => if width <= 16
-                       then { rvfi_mem_data[rvfi_mem_rdata] = sail_zero_extend(v, 256);
-                              rvfi_mem_data[rvfi_mem_rmask] = rvfi_encode_width_mask(width) }
-                       else { internal_error(__FILE__, __LINE__, "Expected at most 16 bytes here!") },
-    MemException(_) => ()
+    Ok(v, _) => if width <= 16
+               then { rvfi_mem_data[rvfi_mem_rdata] = sail_zero_extend(v, 256);
+                      rvfi_mem_data[rvfi_mem_rmask] = rvfi_encode_width_mask(width) }
+               else { internal_error(__FILE__, __LINE__, "Expected at most 16 bytes here!") },
+    Err(_) => ()
   };
 }
 $else
@@ -241,7 +241,7 @@ function checked_mem_read forall 'n, 0 < 'n <= max_mem_access . (
         }
       },
     };
-  rvfi_read(paddr, width, result);
+  rvfi_read(physaddr_bits(paddr), width, result);
   result
 }
 
@@ -280,14 +280,14 @@ function rvfi_write (addr, width, value, meta, result) = {
   rvfi_mem_data_present = true;
   match result {
     /* Log only the memory address (without the value) if the write fails. */
-    MemValue(_) => if width <= 16 then {
+    Ok(_) => if width <= 16 then {
         /* TODO: report tag bit for capability writes and extend mask by one bit. */
         rvfi_mem_data[rvfi_mem_wdata] = sail_zero_extend(value,256);
         rvfi_mem_data[rvfi_mem_wmask] = rvfi_encode_width_mask(width);
       } else {
         internal_error(__FILE__, __LINE__, "Expected at most 16 bytes here!");
       },
-    MemException(_) => ()
+    Err(_) => ()
   }
 }
 $else
@@ -297,7 +297,7 @@ $endif
 
 // only used for actual memory regions, to avoid MMIO effects
 function phys_mem_write forall 'n, 0 < 'n <= max_mem_access . (wk : write_kind, paddr : physaddr, width : int('n), data : bits(8 * 'n), meta : mem_meta) -> MemoryOpResult(bool) = {
-  if platform_get_rvfi_dii() & out_of_rvfi_dii_range(paddr, width)
+  if platform_get_rvfi_dii() & out_of_rvfi_dii_range(physaddr_bits(paddr), width)
   then Err(E_SAMO_Access_Fault())
   else {
     let result = write_ram(wk, paddr, width, data, meta);
@@ -337,7 +337,7 @@ function checked_mem_write forall 'n, 0 < 'n <= max_mem_access . (
         }
       }
     };
-  rvfi_write(paddr, width, data, meta, result);
+  rvfi_write(physaddr_bits(paddr), width, data, meta, result);
   result
 }
 
