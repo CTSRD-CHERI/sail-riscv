@@ -17,5 +17,4 @@ function ext_post_step_hook() -> unit = {
   rvfi_pc_data[rvfi_pc_wdata] = zero_extend(get_arch_pc())
 }
 
-function ext_reset() -> unit = ()
-function ext_reset_misa() -> unit = ()
+function ext_reset() -> unit = ext_rvfi_reset()
