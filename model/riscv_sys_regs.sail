@@ -532,12 +532,12 @@ bitfield Mtvec : xlenbits = {
 }
 register mtvec : Mtvec  /* Trap Vector */
 
-function legalize_tvec(o : Mtvec, v : xlenbits) -> Mtvec = {
- let v = Mk_Mtvec(v);
+function legalize_tvec(o : Mtvec, vbits : xlenbits) -> Mtvec = {
+ let v = Mk_Mtvec(vbits);
  match trapVectorMode_bits(v[Mode]) {
    TV_Direct => v,
    TV_Vector => v,
-   inv_mode  => [v with Mode = trapVectorMode_bits(inv_mode) & 0b01]
+   inv_mode  => [v with Mode = vbits[1..0] & 0b01]
  }
 }
 
