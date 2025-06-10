@@ -68,7 +68,7 @@
 (*  SUCH DAMAGE.                                                                         *)
 (*=======================================================================================*)
 
-Require Import Sail.Base.
+Require Import SailStdpp.Base.
 Require Import String.
 Require Import List.
 Require Import Lia.
@@ -111,12 +111,12 @@ val MEMr_reserved_acquire        : forall 'rv 'a 'b 'e. Size 'a, Size 'b => inte
 val MEMr_reserved_strong_acquire : forall 'rv 'a 'b 'e. Size 'a, Size 'b => integer -> integer -> bitvector 'a -> bitvector 'a -> monad 'rv (bitvector 'b) 'e
 *)
 
-Definition MEMr {rv e} addrsize size (hexRAM addr : mword addrsize)                         `{ArithFact (size >=? 0)} : monad rv (mword (8 * size)) e := read_mem Read_plain addrsize addr size.
-Definition MEMr_acquire {rv e} addrsize size (hexRAM addr : mword addrsize)                 `{ArithFact (size >=? 0)} : monad rv (mword (8 * size)) e := read_mem Read_RISCV_acquire addrsize addr size.
-Definition MEMr_strong_acquire {rv e} addrsize size (hexRAM addr : mword addrsize)          `{ArithFact (size >=? 0)} : monad rv (mword (8 * size)) e := read_mem Read_RISCV_strong_acquire addrsize addr size.
-Definition MEMr_reserved {rv e} addrsize size (hexRAM addr : mword addrsize)                `{ArithFact (size >=? 0)} : monad rv (mword (8 * size)) e := read_mem Read_RISCV_reserved addrsize addr size.
-Definition MEMr_reserved_acquire {rv e} addrsize size (hexRAM addr : mword addrsize)        `{ArithFact (size >=? 0)} : monad rv (mword (8 * size)) e := read_mem Read_RISCV_reserved_acquire addrsize addr size.
-Definition MEMr_reserved_strong_acquire {rv e} addrsize size (hexRAM addr : mword addrsize) `{ArithFact (size >=? 0)} : monad rv (mword (8 * size)) e := read_mem Read_RISCV_reserved_strong_acquire addrsize addr size.
+Definition MEMr {rv e} addrsize size (hexRAM addr : mword addrsize)                         : monad rv (mword (8 * size)) e := read_mem Read_plain addrsize addr size.
+Definition MEMr_acquire {rv e} addrsize size (hexRAM addr : mword addrsize)                 : monad rv (mword (8 * size)) e := read_mem Read_RISCV_acquire addrsize addr size.
+Definition MEMr_strong_acquire {rv e} addrsize size (hexRAM addr : mword addrsize)          : monad rv (mword (8 * size)) e := read_mem Read_RISCV_strong_acquire addrsize addr size.
+Definition MEMr_reserved {rv e} addrsize size (hexRAM addr : mword addrsize)                : monad rv (mword (8 * size)) e := read_mem Read_RISCV_reserved addrsize addr size.
+Definition MEMr_reserved_acquire {rv e} addrsize size (hexRAM addr : mword addrsize)        : monad rv (mword (8 * size)) e := read_mem Read_RISCV_reserved_acquire addrsize addr size.
+Definition MEMr_reserved_strong_acquire {rv e} addrsize size (hexRAM addr : mword addrsize) : monad rv (mword (8 * size)) e := read_mem Read_RISCV_reserved_strong_acquire addrsize addr size.
 
 (*
 val MEMw                            : forall 'rv 'a 'b 'e. Size 'a, Size 'b => integer -> integer -> bitvector 'a -> bitvector 'a -> bitvector 'b -> monad 'rv bool 'e
@@ -143,13 +143,6 @@ Definition shift_bits_right {a b} (v : mword a) (n : mword b) : mword a :=
 Definition shift_bits_right_arith {a b} (v : mword a) (n : mword b) : mword a :=
   arith_shiftr v (int_of_mword false n).
 
-(* Use constants for undefined values for now *)
-Definition internal_pick {rv a e} (vs : list a) : monad rv a e :=
-match vs with
-| (h::_) => returnm h
-| _ => Fail "empty list in internal_pick"
-end.
-
 Definition skip {rv e} (_:unit) : monad rv unit e := returnm tt.
 
 (*val elf_entry : unit -> integer*)
@@ -170,18 +163,6 @@ Definition eq_bit (x : bitU) (y : bitU) : bool :=
   | _,_ => false
   end.
 
-Require Import Zeuclid.
-Definition euclid_modulo (m n : Z) `{ArithFact (n >? 0)} : {z : Z & ArithFact (0 <=? z <=? n-1)}.
-apply existT with (x := ZEuclid.modulo m n).
-constructor.
-destruct H.
-unbool_comparisons.
-unbool_comparisons_goal.
-assert (Z.abs n = n). { rewrite Z.abs_eq; auto with zarith. }
-rewrite <- H at 3.
-lapply (ZEuclid.mod_always_pos m n); lia.
-Qed.
-
 (* Override the more general version *)
 
 Definition mults_vec {n} (l : mword n) (r : mword n) : mword (2 * n) := mults_vec l r.
@@ -201,13 +182,8 @@ Axiom sys_enable_fdext : unit -> bool.
 Axiom sys_enable_next : unit -> bool.
 Axiom sys_enable_zfinx : unit -> bool.
 Axiom sys_enable_writable_fiom : unit -> bool.
+Axiom sys_enable_vext : unit -> bool.
+Axiom sys_pmp_grain : unit -> Z.
+Axiom sys_pmp_count : unit -> Z.
 
-(* The constraint solver can do this itself, but a Coq bug puts
-   anonymous_subproof into the term instead of an actual subproof. *)
-Lemma n_leading_spaces_fact {w__0} :
-  w__0 >= 0 -> exists ex17629_ : Z, 1 + w__0 = 1 + ex17629_ /\ 0 <= ex17629_.
-intro.
-exists w__0.
-lia.
-Qed.
-#[export] Hint Resolve n_leading_spaces_fact : sail.
+Inductive diafp : Type := DIAFP_none : unit -> diafp.
