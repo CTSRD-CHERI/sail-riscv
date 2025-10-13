@@ -154,6 +154,16 @@ function rF (Fregno(r) : fregno) -> flenbits = {
   fregval_from_freg(v)
 }
 
+$ifdef RVFI_DII
+function rvfi_wF (Regno(r) : regno, v : xlenbits) -> unit = {
+  rvfi_int_data[rvfi_rd_wdata] = zero_extend(v);
+  rvfi_int_data[rvfi_rd_addr] = to_bits(8,r);
+  rvfi_int_data_present = true;
+}
+$else
+function rvfi_wF (r : regno, v : xlenbits) -> unit = ()
+$endif
+
 function wF (Fregno(r) : fregno, in_v : flenbits) -> unit = {
   assert(sys_enable_fdext());
   let v = fregval_into_freg(in_v);
@@ -194,6 +204,7 @@ function wF (Fregno(r) : fregno, in_v : flenbits) -> unit = {
   };
 
   dirty_fd_context();
+  rvfi_wF(Regno(r), in_v);
 
   if   get_config_print_reg()
   then
