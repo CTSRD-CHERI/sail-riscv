@@ -24,7 +24,7 @@ function fetch() -> FetchResult = {
       else match translateAddr(use_pc, Execute()) {
         TR_Failure(e, _) => F_Error(e, PC),
         TR_Address(_, _, _) => {
-          let i = rvfi_instruction[rvfi_insn];
+          let i = if (rvfi_instruction[rvfi_insn][1 .. 0] != 0b11) then zero_extend(rvfi_instruction[rvfi_insn][15 .. 0]) else rvfi_instruction[rvfi_insn];
           rvfi_inst_data[rvfi_insn]   = zero_extend(i);
           if   (i[1 .. 0] != 0b11)
           then F_RVC(i[15 .. 0])
