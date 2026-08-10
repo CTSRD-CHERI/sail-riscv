@@ -6,9 +6,6 @@
 /*  SPDX-License-Identifier: BSD-2-Clause                                                */
 /*=======================================================================================*/
 
-/* Step hooks for rvfi. */
+/* Stubs for RVFI functions when disabled */
 
-function ext_rvfi_post_step_hook() -> unit = {
-  /* record the next pc */
-  rvfi_pc_data[rvfi_pc_wdata] = zero_extend(get_arch_pc())
-}
+function ext_rvfi_post_step_hook() -> unit = ()
