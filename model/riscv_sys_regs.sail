@@ -358,6 +358,27 @@ function in32BitMode() -> bool = {
 }
 
 /* mseccfg */
+
+/* whether Zkr was enabled at boot */
+val sys_enable_zkr = pure "sys_enable_zkr" : unit -> bool
+
+bitfield Seccfg : bits(64) = {
+  // Enable access to SEED in S-mode
+  SSEED  : 9,
+  // Enable access to SEED in U-mode
+  USEED  : 8,
+  // Reserved WPRI bits
+  wpri_0 : 7 .. 0,
+}
+
+function legalize_mseccfg(o : Seccfg, v : bits(64)) -> Seccfg = {
+  let v = Mk_Seccfg(v);
+  [
+    o with
+    SSEED = if sys_enable_zkr() then v[SSEED] else 0b0,
+    USEED = if sys_enable_zkr() then v[USEED] else 0b0,
+  ]
+}
 register mseccfg : Seccfg = legalize_mseccfg(Mk_Seccfg(zeros()), zeros())
 
 mapping clause csr_name_map = 0x747  <-> "mseccfg"
@@ -369,15 +390,17 @@ function clause is_CSR_defined(0x757) = xlen == 32 // mseccfgh
 function clause read_CSR(0x747, _) = mseccfg.bits[xlen - 1 .. 0]
 function clause read_CSR((0x757, _) if xlen == 32) = mseccfg.bits[63 .. 32]
 
-val set_mseccfg : (bits(64)) -> unit
+function set_mseccfg(v : bits(64)) -> unit = {
+  mseccfg = legalize_mseccfg(mseccfg, v);
+}
 
 function clause write_CSR((0x747, value) if xlen == 32) = { set_mseccfg(mseccfg.bits[63 .. 32] @ value); mseccfg.bits[31 .. 0] }
 function clause write_CSR((0x747, value) if xlen == 64) = { set_mseccfg(value); mseccfg.bits }
 function clause write_CSR((0x757, value) if xlen == 32) = { set_mseccfg(value @ mseccfg.bits[31 .. 0]); mseccfg.bits[63 .. 32] }
 
 // Initialised to legal values in case some bits are hard-coded to 1.
-register menvcfg : MEnvcfg = legalize_menvcfg(Mk_MEnvcfg(zeros()), mseccfg, zeros())
-register senvcfg : SEnvcfg = legalize_senvcfg(Mk_SEnvcfg(zeros()), menvcfg, zeros())
+register menvcfg : MEnvcfg = legalize_menvcfg(Mk_MEnvcfg(zeros()), zeros())
+register senvcfg : SEnvcfg = legalize_senvcfg(Mk_SEnvcfg(zeros()), zeros())
 
 mapping clause csr_name_map = 0x30A  <-> "menvcfg"
 mapping clause csr_name_map = 0x31A  <-> "menvcfgh"
