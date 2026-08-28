@@ -131,6 +131,8 @@ val sys_enable_zksed = pure "sys_enable_zksed" : unit -> bool
 val sys_enable_zksh = pure "sys_enable_zksh" : unit -> bool
 /* whether misa.X should be set to indicate non-standard extensions */
 val sys_misa_x = pure "sys_misa_x" : unit -> bool
+/* whether RVY cheri extension was enabled at boot */
+val sys_enable_rvy = pure "sys_enable_rvy" : unit -> bool
 
 // Force the set bits of mcountinhibit to 1
 val sys_force_countinhibit_bits = pure "sys_force_countinhibit_bits" : unit -> bits(32)
@@ -192,6 +194,8 @@ function legalize_misa(m : Misa, v : xlenbits) -> Misa = {
   else {
     // Suppress enabling C if it is not supported.
     let m = if not(sys_enable_rvc()) then m else [m with C = v[C]];
+    // Suppress enabling Y if it is not supported.
+    let m = if not(sys_enable_rvy()) then m else [m with Y = v[Y]];
     /* Suppress updates to misa.{f,d} if disabled at boot */
     if   not(sys_enable_fdext())
     then m
